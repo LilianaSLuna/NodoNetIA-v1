@@ -1,0 +1,131 @@
+"use client"
+
+import { useState, useCallback, useEffect } from "react"
+import Papa from 'papaparse';
+import { DashboardHeader } from "@/components/dashboard-header"
+import { Dropzone } from "@/components/dropzone"
+import { OrdersTable, type Order } from "@/components/orders-table"
+import { MapView } from "@/components/map-view"
+import { StatsCards } from "@/components/stats-cards"
+import { OptimizeButton } from "@/components/optimize-button"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { FileSpreadsheet, Map, AlertCircle } from "lucide-react"
+
+import { db } from "@/lib/firebase"
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot } from "firebase/firestore"
+
+export default function DashboardPage() {
+  const [orders, setOrders] = useState<any[]>([])
+  const [docId, setDocId] = useState<string | null>(null)
+  const [encodedPolyline, setEncodedPolyline] = useState<string | null>(null)
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+  const [isOptimizing, setIsOptimizing] = useState(false)
+
+  useEffect(() => {
+    const q = query(collection(db, "tenants/SURA/pending_optimizations"), orderBy("created_at", "desc"), limit(1));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        const latestDoc = snap.docs[0];
+        setDocId(latestDoc.id);
+        setEncodedPolyline(latestDoc.data().encoded_polyline || null);
+
+        onSnapshot(collection(db, `tenants/SURA/pending_optimizations/${latestDoc.id}/validated_stops`), (stopsSnap) => {
+          const points = stopsSnap.docs.map(d => ({ 
+            id: d.id, 
+            ...d.data(),
+            isValidated: d.data().precision_color === "VERDE" 
+          }));
+          if (points.length > 0) {
+            // Ordenamos por order_index para que la tabla refleje la secuencia de la IA
+            setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
+          }
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleFilesUploaded = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    Papa.parse(files[0], {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const parsed = results.data.map((row: any, i: number) => ({
+          id: row.id || `PED-${i}-${Date.now()}`,
+          address: row.direccion || row.address,
+          neighborhood: row.barrio || "Analizando...",
+          precision_color: "NEUTRAL",
+          lat: 6.2442,
+          lng: -75.5812,
+          isValidated: false
+        }));
+        setOrders(parsed.slice(0, 50));
+      }
+    });
+  }, []);
+
+  const handleOptimize = useCallback(async () => {
+    if (orders.length === 0) return;
+    setIsOptimizing(true);
+    try {
+      await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
+        status: "REQUESTED",
+        raw_addresses: orders.map(o => ({ id: o.id, address: o.address })),
+        created_at: serverTimestamp(),
+        vehicle_count: 1
+      });
+      setIsOptimizing(false);
+    } catch (e) {
+      setIsOptimizing(false);
+    }
+  }, [orders]);
+
+  const needsReviewCount = orders.filter(o => o.precision_color === "NARANJA").length;
+
+  return (
+    <div className="flex min-h-screen flex-col bg-background">
+      <DashboardHeader />
+      <main className="flex-1 p-4 lg:p-6">
+        <div className="mx-auto max-w-7xl space-y-6">
+          <StatsCards 
+            totalOrders={orders.length} 
+            validatedOrders={orders.filter(o => o.precision_color === "VERDE").length} 
+            pendingOrders={needsReviewCount} 
+          />
+          <div className="grid gap-6 lg:grid-cols-2">
+            <div className="space-y-6">
+              <Card className="border-border bg-card">
+                <CardHeader><CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-primary" /> Cargar Pedidos</CardTitle></CardHeader>
+                <CardContent><Dropzone onFilesUploaded={handleFilesUploaded} /></CardContent>
+              </Card>
+              <div className="max-h-[450px] overflow-auto rounded-md border border-border">
+                <OrdersTable orders={orders} selectedOrderId={selectedOrderId} onSelectOrder={setSelectedOrderId} />
+              </div>
+              <OptimizeButton disabled={orders.length === 0 || isOptimizing} onOptimize={handleOptimize} loading={isOptimizing} />
+            </div>
+            <Card className="border-border bg-card">
+              <CardHeader><CardTitle className="flex items-center gap-2"><Map className="h-5 w-5 text-primary" /> Refinador de Pines v.1.5</CardTitle></CardHeader>
+              <CardContent className="p-0">
+                <div className="h-[600px] relative">
+                  <MapView 
+                    orders={orders} 
+                    selectedOrderId={selectedOrderId} 
+                    onSelectOrder={setSelectedOrderId} 
+                    docId={docId}
+                    encodedPolyline={encodedPolyline} 
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </main>
+      <footer className="border-t border-border bg-card/50 px-4 py-8 text-center">
+        <p className="text-sm font-bold text-muted-foreground tracking-widest uppercase">
+          NodoNet AI - Medellin Tech Distrito - Markento
+        </p>
+      </footer>
+    </div>
+  )
+}

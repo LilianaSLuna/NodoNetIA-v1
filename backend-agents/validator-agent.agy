@@ -1,0 +1,201 @@
+"""
+NodoNet AI - Orquestador de Logística
+Hito 4.0 - Resiliencia Operativa y Evidencia (FIELDPROOF)
+Versión: v.5.5
+"""
+
+import asyncio
+import os
+import aiohttp
+import json
+import re
+from google.cloud import firestore
+import google.auth
+from google.auth.transport.requests import Request
+from dotenv import load_dotenv
+
+# --- METADATOS ---
+__version__ = "v.5.5"
+
+# --- CONFIGURACIÓN ---
+PROJECT_ID = "nodonet-ai-2026"
+ruta_carpeta_actual = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(ruta_carpeta_actual, ".env"))
+
+API_KEY_MAPS = os.getenv("GOOGLE_MAPS_BACKEND_KEY")
+db = firestore.AsyncClient(project=PROJECT_ID)
+
+def clean_address_v46(address: str) -> str:
+    """Middleware v.46: Estandarización estricta de nomenclatura de Medellín (Preservado)"""
+    if not address: return ""
+    addr = address.upper().strip()
+    replacements = {
+        r'\bCL\b': 'CALLE', r'\bCRA?\b': 'CARRERA',
+        r'\bTV\b|\bTRV\b': 'TRANSVERSAL', r'\bDG\b|\bDIAG\b': 'DIAGONAL',
+        r'\bCQ\b|\bCIRC\b': 'CIRCULAR', r'\bAV\b': 'AVENIDA',
+        r'\bAUT\b': 'AUTOPISTA'
+    }
+    for pattern, replacement in replacements.items():
+        addr = re.sub(pattern, replacement, addr)
+    addr = re.sub(r'ZONA\s?\d+', '', addr)
+    addr = addr.replace('SUR', ' SUR')
+    addr = " ".join(addr.split())
+    
+    if not any(city in addr for city in ["MEDELLIN", "ENVIGADO", "ITAGUI", "SABANETA"]):
+        addr += ", ANTIOQUIA, COLOMBIA"
+    return addr
+
+async def get_bearer_token():
+    """Autenticación OAuth2 para Google CFR (Preservado)"""
+    credentials, project = google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+    auth_request = Request()
+    credentials.refresh(auth_request)
+    return credentials.token
+
+async def validate_address_stop(raw_address: str, stop_id: str, original_index: int, phone: str = "N/A") -> dict:
+    """Fase 1: Identidad Geoespacial con soporte de FIELDPROOF"""
+    cleaned_addr = clean_address_v46(raw_address)
+    url = f"https://addressvalidation.googleapis.com/v1:validateAddress?key={API_KEY_MAPS}"
+    payload = {"address": {"regionCode": "CO", "addressLines": [cleaned_addr]}}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload) as resp:
+                res = await resp.json()
+                if resp.status != 200: return {"id": stop_id, "status": "failed", "original_index": original_index}
+
+                v_obj = res.get("result", {})
+                geocode = v_obj.get("geocode", {})
+                loc = geocode.get("location", {})
+                verdict = v_obj.get("verdict", {})
+                gran = verdict.get("validationGranularity", "OTHER")
+
+                if gran in ["PREMISE", "SUB_PREMISE", "STREET_ADDRESS"]:
+                    color = "VERDE"
+                else:
+                    color = "NARANJA"
+
+                return {
+                    "id": stop_id,
+                    "address": v_obj.get("address", {}).get("formattedAddress", cleaned_addr),
+                    "phone": phone,
+                    "lat": loc.get("latitude"), 
+                    "lng": loc.get("longitude"),
+                    "precision_color": color,
+                    "needs_review": (color == "NARANJA"),
+                    "original_index": original_index,
+                    "confirmed_coordinate": None,
+                    "is_ground_truth": False,
+                    "status": "success" if loc.get("latitude") else "failed",
+                    "evidence_url": None,
+                    "offline_sync": False
+                }
+    except Exception as e:
+        print(f"[ERROR] Validación v.5.5: {e}")
+        return {"id": stop_id, "status": "failed", "original_index": original_index}
+
+async def trigger_route_optimization(doc_id: str):
+    """Fase 2: CFR con Resiliencia de Datos de Campo"""
+    print(f"[CFR] 🛰️ Optimizando v.5.5...")
+    token = await get_bearer_token()
+    main_doc_ref = db.collection('tenants/SURA/pending_optimizations').document(doc_id)
+    stops_ref = main_doc_ref.collection('validated_stops')
+    
+    docs = await stops_ref.get()
+    all_stops = sorted([d.to_dict() for d in docs], key=lambda x: x['original_index'])
+    
+    if len(all_stops) < 2: return
+
+    depot_start = all_stops[0]
+    depot_end = all_stops[-1]
+    
+    def get_best_coords(s):
+        if s.get('confirmed_coordinate') and s.get('is_ground_truth'):
+            return s['confirmed_coordinate']['lat'], s['confirmed_coordinate']['lng']
+        return s['lat'], s['lng']
+
+    inter_stops = [s for s in all_stops[1:-1] if s['status'] == 'success']
+
+    payload = {
+        "model": {
+            "shipments": [
+                {
+                    "deliveries": [{
+                        "arrivalLocation": {
+                            "latitude": get_best_coords(s)[0], 
+                            "longitude": get_best_coords(s)[1]
+                        }
+                    }], 
+                    "label": str(s['id'])
+                } for s in inter_stops
+            ],
+            "vehicles": [{
+                "startLocation": {"latitude": get_best_coords(depot_start)[0], "longitude": get_best_coords(depot_start)[1]}, 
+                "endLocation": {"latitude": get_best_coords(depot_end)[0], "longitude": get_best_coords(depot_end)[1]},
+                "label": f"NodoNet-v5.5-Resilient"
+            }]
+        },
+        "populatePolylines": True
+    }
+
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    async with aiohttp.ClientSession() as session:
+        async with session.post(f"https://routeoptimization.googleapis.com/v1/projects/{PROJECT_ID}:optimizeTours", 
+                                json=payload, headers=headers) as resp:
+            res = await resp.json()
+            if resp.status == 200 and 'routes' in res:
+                route = res['routes'][0]
+                batch = db.batch()
+                
+                batch.update(stops_ref.document(str(depot_start['id'])), {"order_index": 0})
+                for idx, v in enumerate(route.get('visits', [])):
+                    ship_idx = v.get('shipmentIndex', 0)
+                    batch.update(stops_ref.document(str(inter_stops[ship_idx]['id'])), {"order_index": idx + 1})
+                batch.update(stops_ref.document(str(depot_end['id'])), {"order_index": len(route.get('visits', [])) + 1})
+
+                batch.update(main_doc_ref, {
+                    "encoded_polyline": route['routePolyline']['points'],
+                    "status": "OPTIMIZED",
+                    "optimized_at": firestore.SERVER_TIMESTAMP,
+                    "agent_v": __version__,
+                    "fieldproof_ready": True
+                })
+                await batch.commit()
+                print(f"[IA] ✨ Ruta v.5.5 optimizada.")
+            else:
+                print(f"[ERROR CFR] {res}")
+
+async def process_full_cycle(doc_id: str, doc_data: dict):
+    """Orquestador: Gestión de Ciclo de Vida v.5.5"""
+    stops_ref = db.collection('tenants/SURA/pending_optimizations').document(doc_id).collection('validated_stops')
+    existing_stops = await stops_ref.get()
+
+    if len(existing_stops) == 0:
+        print(f"[IA] 🔍 Carga masiva v.5.5...")
+        raw_addrs = doc_data.get('raw_addresses', [])
+        results = await asyncio.gather(*[
+            validate_address_stop(a.get('address', a), a.get('id', f"s{i}"), i, a.get('phone', 'N/A')) 
+            for i, a in enumerate(raw_addrs)
+        ])
+        
+        batch = db.batch()
+        for s in results:
+            batch.set(stops_ref.document(str(s["id"])), s)
+        await batch.commit()
+    
+    await trigger_route_optimization(doc_id)
+
+main_loop = None
+def on_snapshot(col_snapshot, changes, read_time):
+    for change in changes:
+        data = change.document.to_dict()
+        if data.get("status") == "REQUESTED":
+            print(f"[Snapshot] 📥 Solicitud v.5.5: {change.document.id}")
+            asyncio.run_coroutine_threadsafe(process_full_cycle(change.document.id, data), main_loop)
+
+if __name__ == "__main__":
+    main_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(main_loop)
+    firestore.Client(project=PROJECT_ID).collection("tenants/SURA/pending_optimizations").on_snapshot(on_snapshot)
+    print(f"--- NodoNet AI Agente v.5.5 Activo (FIELDPROOF Ready) ---")
+    main_loop.run_forever()
