@@ -10,9 +10,10 @@ import { StatsCards } from "@/components/stats-cards"
 import { OptimizeButton } from "@/components/optimize-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FileSpreadsheet, Map, AlertCircle } from "lucide-react"
+import { Button } from "@/components/ui/button"
 
 import { db } from "@/lib/firebase"
-import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore"
 
 export default function DashboardPage() {
   const [orders, setOrders] = useState<any[]>([])
@@ -20,14 +21,25 @@ export default function DashboardPage() {
   const [encodedPolyline, setEncodedPolyline] = useState<string | null>(null)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [isOptimizing, setIsOptimizing] = useState(false)
+  const [isArchiving, setIsArchiving] = useState(false)
 
   useEffect(() => {
     const q = query(collection(db, "tenants/SURA/pending_optimizations"), orderBy("created_at", "desc"), limit(1));
     const unsubscribe = onSnapshot(q, (snap) => {
       if (!snap.empty) {
         const latestDoc = snap.docs[0];
+        const data = latestDoc.data();
+
+        // Filtro de estado ARCHIVED: Limpia la UI
+        if (data.status === "ARCHIVED") {
+          setOrders([]);
+          setDocId(null);
+          setEncodedPolyline(null);
+          return;
+        }
+
         setDocId(latestDoc.id);
-        setEncodedPolyline(latestDoc.data().encoded_polyline || null);
+        setEncodedPolyline(data.encoded_polyline || null);
 
         onSnapshot(collection(db, `tenants/SURA/pending_optimizations/${latestDoc.id}/validated_stops`), (stopsSnap) => {
           const points = stopsSnap.docs.map(d => ({ 
@@ -81,6 +93,20 @@ export default function DashboardPage() {
     }
   }, [orders]);
 
+  const handleArchive = async () => {
+    if (!docId) return;
+    setIsArchiving(true);
+    try {
+      await updateDoc(doc(db, "tenants/SURA/pending_optimizations", docId), {
+        status: "ARCHIVED"
+      });
+    } catch (error) {
+      console.error("Error al archivar la ruta:", error);
+    } finally {
+      setIsArchiving(false);
+    }
+  };
+
   const needsReviewCount = orders.filter(o => o.precision_color === "NARANJA").length;
 
   return (
@@ -102,7 +128,16 @@ export default function DashboardPage() {
               <div className="max-h-[450px] overflow-auto rounded-md border border-border">
                 <OrdersTable orders={orders} selectedOrderId={selectedOrderId} onSelectOrder={setSelectedOrderId} />
               </div>
-              <OptimizeButton disabled={orders.length === 0 || isOptimizing} onOptimize={handleOptimize} loading={isOptimizing} />
+              <div className="flex gap-4">
+                <div className="flex-1">
+                  <OptimizeButton disabled={orders.length === 0 || isOptimizing} onOptimize={handleOptimize} loading={isOptimizing} />
+                </div>
+                {docId && (
+                  <Button variant="secondary" onClick={handleArchive} disabled={isArchiving} className="h-14 px-8 text-base font-semibold">
+                    Archivar Ruta
+                  </Button>
+                )}
+              </div>
             </div>
             <Card className="border-border bg-card">
               <CardHeader><CardTitle className="flex items-center gap-2"><Map className="h-5 w-5 text-primary" /> Refinador de Pines v.1.5</CardTitle></CardHeader>
