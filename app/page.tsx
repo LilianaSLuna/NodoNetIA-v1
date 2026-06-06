@@ -9,11 +9,11 @@ import { MapView } from "@/components/map-view"
 import { StatsCards } from "@/components/stats-cards"
 import { OptimizeButton } from "@/components/optimize-button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { FileSpreadsheet, Map, AlertCircle } from "lucide-react"
+import { FileSpreadsheet, Map } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 import { db } from "@/lib/firebase"
-import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc } from "firebase/firestore"
+import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, where } from "firebase/firestore"
 
 export default function DashboardPage() {
   const [orders, setOrders] = useState<any[]>([])
@@ -24,19 +24,18 @@ export default function DashboardPage() {
   const [isArchiving, setIsArchiving] = useState(false)
 
   useEffect(() => {
-    const q = query(collection(db, "tenants/SURA/pending_optimizations"), orderBy("created_at", "desc"), limit(1));
+    // Filtro estricto: solo escucha estados activos, ignora ARCHIVED
+    const q = query(
+      collection(db, "tenants/SURA/pending_optimizations"), 
+      where("status", "in", ["REQUESTED", "OPTIMIZED"]),
+      orderBy("created_at", "desc"), 
+      limit(1)
+    );
+
     const unsubscribe = onSnapshot(q, (snap) => {
       if (!snap.empty) {
         const latestDoc = snap.docs[0];
         const data = latestDoc.data();
-
-        // Filtro de estado ARCHIVED: Limpia la UI
-        if (data.status === "ARCHIVED") {
-          setOrders([]);
-          setDocId(null);
-          setEncodedPolyline(null);
-          return;
-        }
 
         setDocId(latestDoc.id);
         setEncodedPolyline(data.encoded_polyline || null);
@@ -47,11 +46,13 @@ export default function DashboardPage() {
             ...d.data(),
             isValidated: d.data().precision_color === "VERDE" 
           }));
-          if (points.length > 0) {
-            // Ordenamos por order_index para que la tabla refleje la secuencia de la IA
-            setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
-          }
+          setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
         });
+      } else {
+        // Si no hay documentos activos, limpiamos la UI
+        setOrders([]);
+        setDocId(null);
+        setEncodedPolyline(null);
       }
     });
     return () => unsubscribe();
@@ -81,17 +82,23 @@ export default function DashboardPage() {
     if (orders.length === 0) return;
     setIsOptimizing(true);
     try {
+      // 1. Si existe un docId activo, lo archivamos primero para evitar duplicados
+      if (docId) {
+        await updateDoc(doc(db, "tenants/SURA/pending_optimizations", docId), { status: "ARCHIVED" });
+      }
+      // 2. Creamos la nueva solicitud
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
         status: "REQUESTED",
         raw_addresses: orders.map(o => ({ id: o.id, address: o.address })),
         created_at: serverTimestamp(),
         vehicle_count: 1
       });
-      setIsOptimizing(false);
     } catch (e) {
+      console.error("Error optimizando:", e);
+    } finally {
       setIsOptimizing(false);
     }
-  }, [orders]);
+  }, [orders, docId]);
 
   const handleArchive = async () => {
     if (!docId) return;
@@ -101,13 +108,11 @@ export default function DashboardPage() {
         status: "ARCHIVED"
       });
     } catch (error) {
-      console.error("Error al archivar la ruta:", error);
+      console.error("Error al archivar:", error);
     } finally {
       setIsArchiving(false);
     }
   };
-
-  const needsReviewCount = orders.filter(o => o.precision_color === "NARANJA").length;
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -117,7 +122,7 @@ export default function DashboardPage() {
           <StatsCards 
             totalOrders={orders.length} 
             validatedOrders={orders.filter(o => o.precision_color === "VERDE").length} 
-            pendingOrders={needsReviewCount} 
+            pendingOrders={orders.filter(o => o.precision_color === "NARANJA").length} 
           />
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-6">
@@ -133,8 +138,8 @@ export default function DashboardPage() {
                   <OptimizeButton disabled={orders.length === 0 || isOptimizing} onOptimize={handleOptimize} loading={isOptimizing} />
                 </div>
                 {docId && (
-                  <Button variant="secondary" onClick={handleArchive} disabled={isArchiving} className="h-14 px-8 text-base font-semibold">
-                    Archivar Ruta
+                  <Button variant="secondary" onClick={handleArchive} disabled={isArchiving || isOptimizing} className="h-14 px-8 text-base font-semibold">
+                    {isArchiving ? "Archivando..." : "Archivar Ruta"}
                   </Button>
                 )}
               </div>
@@ -143,24 +148,13 @@ export default function DashboardPage() {
               <CardHeader><CardTitle className="flex items-center gap-2"><Map className="h-5 w-5 text-primary" /> Refinador de Pines v.1.5</CardTitle></CardHeader>
               <CardContent className="p-0">
                 <div className="h-[600px] relative">
-                  <MapView 
-                    orders={orders} 
-                    selectedOrderId={selectedOrderId} 
-                    onSelectOrder={setSelectedOrderId} 
-                    docId={docId}
-                    encodedPolyline={encodedPolyline} 
-                  />
+                  <MapView orders={orders} selectedOrderId={selectedOrderId} onSelectOrder={setSelectedOrderId} docId={docId} encodedPolyline={encodedPolyline} />
                 </div>
               </CardContent>
             </Card>
           </div>
         </div>
       </main>
-      <footer className="border-t border-border bg-card/50 px-4 py-8 text-center">
-        <p className="text-sm font-bold text-muted-foreground tracking-widest uppercase">
-          NodoNet AI - Medellin Tech Distrito - Markento
-        </p>
-      </footer>
     </div>
   )
 }
