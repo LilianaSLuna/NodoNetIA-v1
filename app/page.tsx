@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect } from "react"
 import Papa from 'papaparse';
 import { DashboardHeader } from "@/components/dashboard-header"
 import { Dropzone } from "@/components/dropzone"
-import { OrdersTable, type Order } from "@/components/orders-table"
+import { OrdersTable } from "@/components/orders-table"
 import { MapView } from "@/components/map-view"
 import { StatsCards } from "@/components/stats-cards"
 import { OptimizeButton } from "@/components/optimize-button"
@@ -18,16 +18,17 @@ import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot,
 export default function DashboardPage() {
   const [orders, setOrders] = useState<any[]>([])
   const [docId, setDocId] = useState<string | null>(null)
+  const [status, setStatus] = useState<string | null>(null)
   const [encodedPolyline, setEncodedPolyline] = useState<string | null>(null)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
 
   useEffect(() => {
-    // Filtro estricto: solo escucha estados activos, ignora ARCHIVED
+    // Filtro inteligente: Solo muestra documentos activos para evitar estados ARCHIVED
     const q = query(
       collection(db, "tenants/SURA/pending_optimizations"), 
-      where("status", "in", ["REQUESTED", "OPTIMIZED"]),
+      where("status", "in", ["REQUESTED", "VALIDATED", "OPTIMIZED"]),
       orderBy("created_at", "desc"), 
       limit(1)
     );
@@ -36,22 +37,22 @@ export default function DashboardPage() {
       if (!snap.empty) {
         const latestDoc = snap.docs[0];
         const data = latestDoc.data();
-
+        
         setDocId(latestDoc.id);
+        setStatus(data.status);
         setEncodedPolyline(data.encoded_polyline || null);
 
         onSnapshot(collection(db, `tenants/SURA/pending_optimizations/${latestDoc.id}/validated_stops`), (stopsSnap) => {
           const points = stopsSnap.docs.map(d => ({ 
-            id: d.id, 
-            ...d.data(),
-            isValidated: d.data().precision_color === "VERDE" 
+            id: d.id, ...d.data(), isValidated: d.data().precision_color === "VERDE" 
           }));
           setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
         });
       } else {
-        // Si no hay documentos activos, limpiamos la UI
+        // Limpieza automática al no encontrar documentos activos
         setOrders([]);
         setDocId(null);
+        setStatus(null);
         setEncodedPolyline(null);
       }
     });
@@ -61,17 +62,13 @@ export default function DashboardPage() {
   const handleFilesUploaded = useCallback((files: File[]) => {
     if (files.length === 0) return;
     Papa.parse(files[0], {
-      header: true,
-      skipEmptyLines: true,
+      header: true, skipEmptyLines: true,
       complete: (results) => {
         const parsed = results.data.map((row: any, i: number) => ({
           id: row.id || `PED-${i}-${Date.now()}`,
           address: row.direccion || row.address,
           neighborhood: row.barrio || "Analizando...",
-          precision_color: "NEUTRAL",
-          lat: 6.2442,
-          lng: -75.5812,
-          isValidated: false
+          precision_color: "NEUTRAL"
         }));
         setOrders(parsed.slice(0, 50));
       }
@@ -82,11 +79,6 @@ export default function DashboardPage() {
     if (orders.length === 0) return;
     setIsOptimizing(true);
     try {
-      // 1. Si existe un docId activo, lo archivamos primero para evitar duplicados
-      if (docId) {
-        await updateDoc(doc(db, "tenants/SURA/pending_optimizations", docId), { status: "ARCHIVED" });
-      }
-      // 2. Creamos la nueva solicitud
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
         status: "REQUESTED",
         raw_addresses: orders.map(o => ({ id: o.id, address: o.address })),
@@ -94,21 +86,16 @@ export default function DashboardPage() {
         vehicle_count: 1
       });
     } catch (e) {
-      console.error("Error optimizando:", e);
-    } finally {
+      console.error(e);
       setIsOptimizing(false);
     }
-  }, [orders, docId]);
+  }, [orders]);
 
   const handleArchive = async () => {
     if (!docId) return;
     setIsArchiving(true);
     try {
-      await updateDoc(doc(db, "tenants/SURA/pending_optimizations", docId), {
-        status: "ARCHIVED"
-      });
-    } catch (error) {
-      console.error("Error al archivar:", error);
+      await updateDoc(doc(db, "tenants/SURA/pending_optimizations", docId), { status: "ARCHIVED" });
     } finally {
       setIsArchiving(false);
     }
@@ -135,10 +122,14 @@ export default function DashboardPage() {
               </div>
               <div className="flex gap-4">
                 <div className="flex-1">
-                  <OptimizeButton disabled={orders.length === 0 || isOptimizing} onOptimize={handleOptimize} loading={isOptimizing} />
+                  <OptimizeButton 
+                    disabled={orders.length === 0 || status === "REQUESTED" || isOptimizing} 
+                    onOptimize={handleOptimize} 
+                    loading={isOptimizing || status === "REQUESTED"} 
+                  />
                 </div>
                 {docId && (
-                  <Button variant="secondary" onClick={handleArchive} disabled={isArchiving || isOptimizing} className="h-14 px-8 text-base font-semibold">
+                  <Button variant="secondary" onClick={handleArchive} disabled={isArchiving} className="h-14 px-8 text-base font-semibold">
                     {isArchiving ? "Archivando..." : "Archivar Ruta"}
                   </Button>
                 )}
