@@ -33,3 +33,4 @@ service-account.json
 
 !package.json
 !package-lock.json
+!tsconfig.json
