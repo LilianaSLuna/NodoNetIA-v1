@@ -30,3 +30,6 @@ next-env.d.ts
 .env*.local
 *.json
 service-account.json
+
+!package.json
+!package-lock.json
