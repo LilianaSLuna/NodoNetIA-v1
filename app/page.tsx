@@ -30,6 +30,8 @@ export default function DashboardPage() {
   const [isArchiving, setIsArchiving] = useState(false)
 
   useEffect(() => {
+    // NUEVO: No hacer nada si no hay usuario
+    if (!user) return;
     // Filtro inteligente: Solo muestra documentos activos para evitar estados ARCHIVED
     const q = query(
       collection(db, "tenants/SURA/pending_optimizations"), 
