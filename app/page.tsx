@@ -83,8 +83,15 @@ export default function DashboardPage() {
   }, []);
 
   const handleOptimize = useCallback(async () => {
-    if (orders.length === 0) return;
+    console.log("LOG: Iniciando handleOptimize..."); // <--- Añade esto
+    if (orders.length === 0) {
+      console.log("LOG: Error - No hay órdenes cargadas");
+      return;
+    }
+    
     setIsOptimizing(true);
+    console.log("LOG: Intentando escribir en Firebase..."); // <--- Añade esto
+    
     try {
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
         status: "REQUESTED",
@@ -92,8 +99,9 @@ export default function DashboardPage() {
         created_at: serverTimestamp(),
         vehicle_count: 1
       });
+      console.log("LOG: Éxito - Documento creado"); // <--- Añade esto
     } catch (e) {
-      console.error(e);
+      console.error("LOG: Error fatal:", e); // <--- Añade esto
       setIsOptimizing(false);
     }
   }, [orders]);
