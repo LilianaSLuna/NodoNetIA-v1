@@ -15,7 +15,12 @@ import { Button } from "@/components/ui/button"
 import { db } from "@/lib/firebase"
 import { collection, addDoc, serverTimestamp, query, orderBy, limit, onSnapshot, doc, updateDoc, where } from "firebase/firestore"
 
+import { useAuth } from "@/components/auth-provider";
+import { signInWithPopup } from "firebase/auth";
+import { auth, googleProvider } from "@/lib/firebase";
+
 export default function DashboardPage() {
+  const { user, loading } = useAuth();
   const [orders, setOrders] = useState<any[]>([])
   const [docId, setDocId] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
@@ -101,6 +106,26 @@ export default function DashboardPage() {
     }
   };
 
+  // --- PASO 3: PROTECCIÓN DE ACCESO ---
+  if (loading) {
+    return <div className="h-screen flex items-center justify-center bg-background text-white">Cargando NodoNet...</div>;
+  }
+
+  if (!user) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-background p-4 text-center">
+        <h1 className="text-4xl font-black text-white mb-8 tracking-tighter">NodoNet AI</h1>
+        <button 
+          onClick={() => signInWithPopup(auth, googleProvider)}
+          className="bg-blue-600 text-white px-8 py-4 rounded-full font-bold text-lg hover:bg-blue-700 transition-all shadow-xl"
+        >
+          Acceder con Google
+        </button>
+      </div>
+    );
+  }
+  // ------------------------------------
+  
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <DashboardHeader />

@@ -1,10 +1,11 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage"; // <--- NUEVO: Servicio de almacenamiento
+import { getStorage } from "firebase/storage";
+import { getAuth, GoogleAuthProvider } from "firebase/auth"; // <--- NUEVA IMPORTACIÓN
 
 /**
  * Hito 4.0 - Versión v.2.0
- * Configuración de Firebase - Soporte para Base de Datos y Almacenamiento de Evidencias
+ * Configuración de Firebase - Soporte para Base de Datos, Almacenamiento y Autenticación
  */
 
 const firebaseConfig = {
@@ -21,7 +22,9 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
 // Inicializar Servicios
 const db = getFirestore(app);
-const storage = getStorage(app); // <--- NUEVO: Instancia de Storage
+const storage = getStorage(app);
+const auth = getAuth(app); // <--- NUEVA INSTANCIA DE AUTH
+const googleProvider = new GoogleAuthProvider(); // <--- NUEVO PROVEEDOR DE GOOGLE
 
 // Exportación de módulos para NodoNet AI
-export { db, storage };
+export { db, storage, auth, googleProvider }; // <--- EXPORTACIONES ACTUALIZADAS
