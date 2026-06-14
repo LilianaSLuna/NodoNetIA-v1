@@ -30,9 +30,10 @@ export default function DashboardPage() {
   const [isArchiving, setIsArchiving] = useState(false)
 
   useEffect(() => {
-    // NUEVO: No hacer nada si no hay usuario
     if (!user) return;
-    // Filtro inteligente: Solo muestra documentos activos para evitar estados ARCHIVED
+
+    console.log("LOG: 📡 Iniciando radar de Firebase...");
+
     const q = query(
       collection(db, "tenants/SURA/pending_optimizations"), 
       where("status", "in", ["REQUESTED", "VALIDATED", "OPTIMIZED"]),
@@ -45,18 +46,26 @@ export default function DashboardPage() {
         const latestDoc = snap.docs[0];
         const data = latestDoc.data();
         
+        console.log(`LOG: 📄 Documento detectado [${latestDoc.id}] | Estado: ${data.status}`);
+        
         setDocId(latestDoc.id);
         setStatus(data.status);
         setEncodedPolyline(data.encoded_polyline || null);
 
+        // Escuchar los pines validados (Subcolección)
         onSnapshot(collection(db, `tenants/SURA/pending_optimizations/${latestDoc.id}/validated_stops`), (stopsSnap) => {
+          console.log(`LOG: 📍 Subcolección recibida. Pines encontrados: ${stopsSnap.size}`);
           const points = stopsSnap.docs.map(d => ({ 
             id: d.id, ...d.data(), isValidated: d.data().precision_color === "VERDE" 
           }));
-          setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
+          
+          // Solo actualizamos la tabla si Firebase nos devuelve pines reales
+          if (points.length > 0) {
+            setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
+          }
         });
       } else {
-        // Limpieza automática al no encontrar documentos activos
+        console.log("LOG: 📭 No hay documentos activos. Limpiando tablero.");
         setOrders([]);
         setDocId(null);
         setStatus(null);
@@ -64,7 +73,7 @@ export default function DashboardPage() {
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [user]);
 
   const handleFilesUploaded = useCallback((files: File[]) => {
     if (files.length === 0) return;
@@ -83,15 +92,9 @@ export default function DashboardPage() {
   }, []);
 
   const handleOptimize = useCallback(async () => {
-    console.log("LOG: Iniciando handleOptimize..."); // <--- Añade esto
-    if (orders.length === 0) {
-      console.log("LOG: Error - No hay órdenes cargadas");
-      return;
-    }
-    
+    if (orders.length === 0) return;
     setIsOptimizing(true);
-    console.log("LOG: Intentando escribir en Firebase..."); // <--- Añade esto
-    
+    console.log("LOG: 🚀 Enviando a optimizar...");
     try {
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
         status: "REQUESTED",
@@ -99,9 +102,10 @@ export default function DashboardPage() {
         created_at: serverTimestamp(),
         vehicle_count: 1
       });
-      console.log("LOG: Éxito - Documento creado"); // <--- Añade esto
+      console.log("LOG: ✅ Documento creado con éxito");
+      setIsOptimizing(false); // <--- CORRECCIÓN CRÍTICA: Apagamos el botón de carga
     } catch (e) {
-      console.error("LOG: Error fatal:", e); // <--- Añade esto
+      console.error("LOG: ❌ Error al crear documento:", e);
       setIsOptimizing(false);
     }
   }, [orders]);
