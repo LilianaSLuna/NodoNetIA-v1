@@ -14,6 +14,9 @@ import {
 } from "firebase/firestore"
 import { ref, uploadString, getDownloadURL } from "firebase/storage"
 import { cn } from "@/lib/utils"
+import { useAuth } from "@/components/auth-provider"
+import { signInWithPopup } from "firebase/auth"
+import { auth, googleProvider } from "@/lib/firebase"
 
 /**
  * Hito MVP STABLE MASTER - Versión v.37.0 (QUOTA QUENCH ENGINE)
@@ -24,6 +27,7 @@ import { cn } from "@/lib/utils"
 const NETWORK_TIMEOUT = 7000;
 
 export default function DriverPage() {
+  export default function DriverPage()
   const [stops, setStops] = useState<any[]>([])
   const [docId, setDocId] = useState<string | null>(null)
   const [encodedPolyline, setEncodedPolyline] = useState<string | null>(null)
@@ -89,10 +93,14 @@ export default function DriverPage() {
     }
   }, [isOnline, docId, stops.length]);
 
+  // --- CONSULTA A FIREBASE PROTEGIDA ---
   useEffect(() => {
+    if (!user) return; // Si no hay usuario, no intenta descargar datos
+
     const q = query(collection(db, "tenants/SURA/pending_optimizations"), orderBy("created_at", "desc"), limit(1));
-    return onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       if (snapshot.empty) { setIsLoading(false); return; }
+      
       const latest = snapshot.docs[0];
       const id = latest.id;
       setDocId(id);
@@ -100,36 +108,53 @@ export default function DriverPage() {
       
       onSnapshot(query(collection(db, `tenants/SURA/pending_optimizations/${id}/validated_stops`), orderBy("order_index", "asc")), 
         (snap) => {
+          // ... (Aquí adentro queda igual tu mapeo de fetchedStops)
           const fetchedStops = snap.docs.map(d => {
             const data = d.data();
             return {
-              id: d.id,
-              ...data,
-              lat: Number(data.lat) || 0,
-              lng: Number(data.lng) || 0,
-              duration: Number(data.duration) || Number(data.estimated_duration) || 0,
-              distance: Number(data.distance) || 0,
-              estimated_time: Number(data.estimated_time) || 0,
-              estimated_duration: Number(data.estimated_duration) || 0,
-              time: Number(data.time) || 0,
-              order_index: Number(data.order_index) || 0
+              id: d.id, ...data,
+              lat: Number(data.lat) || 0, lng: Number(data.lng) || 0,
+              duration: Number(data.duration) || 0, time: Number(data.time) || 0, order_index: Number(data.order_index) || 0
             };
           });
           
           setStops(fetchedStops);
-          
           const savedProgress = localStorage.getItem(`nodonet_progress_${id}`);
           if (savedProgress) {
             const parsedIndex = parseInt(savedProgress, 10);
-            if (parsedIndex >= 0 && parsedIndex < fetchedStops.length) {
-              setCurrentStopIndex(parsedIndex);
-            }
+            if (parsedIndex >= 0 && parsedIndex < fetchedStops.length) setCurrentStopIndex(parsedIndex);
           }
+          setIsLoading(false);
+        },
+        (error) => {
+          console.error("Error al leer paradas (Posible Auth):", error);
           setIsLoading(false);
         }
       );
+    }, (error) => {
+      console.error("Error al leer documento principal:", error);
+      setIsLoading(false);
     });
-  }, []);
+
+    return () => unsubscribe();
+  }, [user]); // <--- Depende de que el usuario exista
+
+  // --- PANTALLAS DE CARGA Y LOGIN (Reemplaza tu antiguo if(isLoading)) ---
+  if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white font-black uppercase tracking-widest">Autenticando...</div>;
+  
+  if (!user) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-slate-950 p-4 text-center">
+        <h1 className="text-4xl font-black text-white mb-8 tracking-tighter">NodoNet Repartidor</h1>
+        <button onClick={() => signInWithPopup(auth, googleProvider)} className="bg-blue-600 text-white px-8 py-4 rounded-full font-bold text-lg hover:bg-blue-700 transition-all shadow-xl">
+          Acceder con Google
+        </button>
+      </div>
+    );
+  }
+
+  if (isLoading) return <div className="h-screen flex items-center justify-center font-black text-slate-100 bg-slate-950 uppercase tracking-widest">Descargando Ruta...</div>;
+  // ------------------------------------------------------------------------
 
   const currentStop = useMemo(() => stops[currentStopIndex] || null, [stops, currentStopIndex]);
 
