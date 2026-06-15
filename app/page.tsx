@@ -98,7 +98,12 @@ export default function DashboardPage() {
     try {
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
         status: "REQUESTED",
-        raw_addresses: orders.map(o => ({ id: o.id, address: o.address })),
+        raw_addresses: orders.map(o => ({ 
+          id: o.id, 
+          address: o.address,
+          neighborhood: o.neighborhood || "", // <--- Asegura enviar barrio
+          phone: o.phone || ""                // <--- Asegura enviar teléfono
+        })),
         created_at: serverTimestamp(),
         vehicle_count: 1
       });
