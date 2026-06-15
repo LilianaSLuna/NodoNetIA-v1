@@ -18,15 +18,10 @@ import { useAuth } from "@/components/auth-provider"
 import { signInWithPopup } from "firebase/auth"
 import { auth, googleProvider } from "@/lib/firebase"
 
-/**
- * Hito MVP STABLE MASTER - Versión v.37.0 (QUOTA QUENCH ENGINE)
- * FIX: Resolución definitiva de QuotaExceededError en localStorage mediante Safe Fallback de Almacenamiento.
- * BASE: Estructura v.32.0 / v.36.0 ultraestable y testeada con éxito.
- */
-
 const NETWORK_TIMEOUT = 7000;
 
 export default function DriverPage() {
+  const { user, loading: authLoading } = useAuth();
   const [stops, setStops] = useState<any[]>([])
   const [docId, setDocId] = useState<string | null>(null)
   const [encodedPolyline, setEncodedPolyline] = useState<string | null>(null)
@@ -54,13 +49,12 @@ export default function DriverPage() {
     if (!("geolocation" in navigator)) return;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => console.warn("Permiso de GPS denegado o lento, continuando sin él:", err), // <--- FIX iOS
+      (err) => console.warn("Permiso de GPS denegado o lento, continuando sin él:", err),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
-  // AGENTE DE SINCRONIZACIÓN EN SEGUNDO PLANO (OFFLINE BACKWARD ENGINE)
   useEffect(() => {
     if (isOnline && docId && stops.length > 0) {
       const flushOfflineQueue = async () => {
@@ -92,9 +86,8 @@ export default function DriverPage() {
     }
   }, [isOnline, docId, stops.length]);
 
-  // --- CONSULTA A FIREBASE PROTEGIDA ---
   useEffect(() => {
-    if (!user) return; // Si no hay usuario, no intenta descargar datos
+    if (!user) return; 
 
     const q = query(collection(db, "tenants/SURA/pending_optimizations"), orderBy("created_at", "desc"), limit(1));
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -107,7 +100,6 @@ export default function DriverPage() {
       
       onSnapshot(query(collection(db, `tenants/SURA/pending_optimizations/${id}/validated_stops`), orderBy("order_index", "asc")), 
         (snap) => {
-          // ... (Aquí adentro queda igual tu mapeo de fetchedStops)
           const fetchedStops = snap.docs.map(d => {
             const data = d.data();
             return {
@@ -136,25 +128,9 @@ export default function DriverPage() {
     });
 
     return () => unsubscribe();
-  }, [user]); // <--- Depende de que el usuario exista
+  }, [user]);
 
-  // --- PANTALLAS DE CARGA Y LOGIN (Reemplaza tu antiguo if(isLoading)) ---
-  if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white font-black uppercase tracking-widest">Autenticando...</div>;
-  
-  if (!user) {
-    return (
-      <div className="h-screen flex flex-col items-center justify-center bg-slate-950 p-4 text-center">
-        <h1 className="text-4xl font-black text-white mb-8 tracking-tighter">NodoNet Repartidor</h1>
-        <button onClick={() => signInWithPopup(auth, googleProvider)} className="bg-blue-600 text-white px-8 py-4 rounded-full font-bold text-lg hover:bg-blue-700 transition-all shadow-xl">
-          Acceder con Google
-        </button>
-      </div>
-    );
-  }
-
-  if (isLoading) return <div className="h-screen flex items-center justify-center font-black text-slate-100 bg-slate-950 uppercase tracking-widest">Descargando Ruta...</div>;
-  // ------------------------------------------------------------------------
-
+  // --- REGLA DE REACT: TODOS LOS HOOKS DEBEN IR ANTES DE LOS RETURNS ---
   const currentStop = useMemo(() => stops[currentStopIndex] || null, [stops, currentStopIndex]);
 
   const isNear = useMemo(() => {
@@ -195,7 +171,6 @@ export default function DriverPage() {
     if (!currentStop || !docId || isUploading) return;
     setIsUploading(true); 
 
-    // CONTROL INTELIGENTE DE CUOTA DE ALMACENAMIENTO LOCAL
     const finalizeLocal = () => {
       const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
       const newPayload = { 
@@ -211,7 +186,6 @@ export default function DriverPage() {
       try {
         localStorage.setItem('offline_deliveries', JSON.stringify(queue));
       } catch (quotaError) {
-        // FALLBACK DEFENSIVO: Si excede los 5MB de cuota, removemos el base64 de la foto para salvar el flujo logístico
         console.warn("localStorage quota exceeded, saving textual manifest payload without image element.");
         newPayload.evidencePhoto = null; 
         const lightQueue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
@@ -219,7 +193,6 @@ export default function DriverPage() {
         try {
           localStorage.setItem('offline_deliveries', JSON.stringify(lightQueue));
         } catch (innerErr) {
-          // Extremo resguardo: Limpiar cola antigua para permitir el avance de la ruta actual
           localStorage.removeItem('offline_deliveries');
           localStorage.setItem('offline_deliveries', JSON.stringify([newPayload]));
         }
@@ -311,8 +284,22 @@ export default function DriverPage() {
     }
   };
 
-  if (isLoading) return <div className="h-screen flex items-center justify-center font-black text-slate-100 bg-slate-950 uppercase tracking-widest">Cargando NodoNet...</div>;
+  // --- CONDICIONALES DE RENDERIZADO VISUAL AQUÍ AL FINAL ---
+  if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white font-black uppercase tracking-widest">Autenticando...</div>;
   
+  if (!user) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-slate-950 p-4 text-center">
+        <h1 className="text-4xl font-black text-white mb-8 tracking-tighter">NodoNet Repartidor</h1>
+        <button onClick={() => signInWithPopup(auth, googleProvider)} className="bg-blue-600 text-white px-8 py-4 rounded-full font-bold text-lg hover:bg-blue-700 transition-all shadow-xl">
+          Acceder con Google
+        </button>
+      </div>
+    );
+  }
+
+  if (isLoading) return <div className="h-screen flex items-center justify-center font-black text-slate-100 bg-slate-950 uppercase tracking-widest">Descargando Ruta...</div>;
+
   const safeCompleted = Number(currentStopIndex) || 0;
   const safeTotal = Number(stops.length) || 1;
 
@@ -356,7 +343,7 @@ export default function DriverPage() {
         isContingencyActive={isContingencyActive}
         onToggleContingency={() => setIsContingencyActive(!isContingencyActive)}
         onComplete={handleComplete}
-        onSkip={handleSkip} // <--- NUEVA PROPIEDAD PASADA
+        onSkip={handleSkip} 
         isVisible={!!currentStop && !isTransitioning}
       />
 
