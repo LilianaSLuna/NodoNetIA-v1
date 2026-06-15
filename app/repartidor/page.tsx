@@ -51,7 +51,8 @@ export default function DriverPage() {
     if (!("geolocation" in navigator)) return;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      null, { enableHighAccuracy: true }
+      (err) => console.warn("Permiso de GPS denegado o lento, continuando sin él:", err), // <--- FIX iOS
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
   }, []);
@@ -244,6 +245,48 @@ export default function DriverPage() {
     }
   };
 
+  const handleSkip = async () => {
+    if (!currentStop || !docId || isUploading) return;
+    setIsUploading(true);
+
+    const finalizeLocalSkip = () => {
+      const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
+      queue.push({
+        docId, stopId: currentStop.id, evidencePhoto: null,
+        data: { 
+          status: "SKIPPED", 
+          delivered_at: new Date().toISOString(), 
+          offline_flag: true 
+        }
+      });
+      localStorage.setItem('offline_deliveries', JSON.stringify(queue));
+    };
+
+    try {
+      if (isOnline) {
+        await updateDoc(doc(db, `tenants/SURA/pending_optimizations/${docId}/validated_stops`, currentStop.id), {
+          status: "SKIPPED", skipped_at: serverTimestamp()
+        });
+      } else { finalizeLocalSkip(); }
+    } catch (e) {
+      finalizeLocalSkip();
+    } finally {
+      flushSync(() => { setIsUploading(false); setIsTransitioning(true); });
+      setTimeout(() => {
+        flushSync(() => {
+          setEvidencePhoto(null);
+          setIsContingencyActive(false);
+          const nextIndex = currentStopIndex + 1;
+          if (nextIndex < stops.length) {
+            setCurrentStopIndex(nextIndex);
+            localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
+          }
+        });
+        setTimeout(() => setIsTransitioning(false), 600);
+      }, 1200);
+    }
+  };
+
   if (isLoading) return <div className="h-screen flex items-center justify-center font-black text-slate-100 bg-slate-950 uppercase tracking-widest">Cargando NodoNet...</div>;
   
   const safeCompleted = Number(currentStopIndex) || 0;
@@ -289,6 +332,7 @@ export default function DriverPage() {
         isContingencyActive={isContingencyActive}
         onToggleContingency={() => setIsContingencyActive(!isContingencyActive)}
         onComplete={handleComplete}
+        onSkip={handleSkip} // <--- NUEVA PROPIEDAD PASADA
         isVisible={!!currentStop && !isTransitioning}
       />
 
