@@ -29,11 +29,9 @@ export default function DashboardPage() {
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
 
-  // 📡 RADAR 1: Escucha el documento principal (Estado y Ruta)
+  // 📡 RADAR 1: Escucha el documento principal
   useEffect(() => {
     if (!user) return;
-    console.log("LOG: 📡 Iniciando radar principal...");
-
     const q = query(
       collection(db, "tenants/SURA/pending_optimizations"), 
       where("status", "in", ["REQUESTED_V5", "VALIDATED", "OPTIMIZED"]),
@@ -45,13 +43,10 @@ export default function DashboardPage() {
       if (!snap.empty) {
         const latestDoc = snap.docs[0];
         const data = latestDoc.data();
-        
-        console.log(`LOG: 📄 Documento detectado: ${data.status}`);
         setDocId(latestDoc.id);
         setStatus(data.status);
         setEncodedPolyline(data.encoded_polyline || null);
       } else {
-        // Limpiar si no hay rutas activas
         setDocId(null);
         setStatus(null);
         setEncodedPolyline(null);
@@ -62,27 +57,29 @@ export default function DashboardPage() {
     return () => unsubscribeMain();
   }, [user]);
 
-  // 📍 RADAR 2: Escucha EXCLUSIVAMENTE los pines
+  // 📍 RADAR 2: Escucha EXCLUSIVAMENTE los pines con datos de campo
   useEffect(() => {
     if (!docId) return;
     const unsubscribeStops = onSnapshot(
       collection(db, `tenants/SURA/pending_optimizations/${docId}/validated_stops`), 
       (stopsSnap) => {
-        const points = stopsSnap.docs.map(d => ({ 
-          id: d.id, 
-          ...d.data(), 
-          isValidated: d.data().precision_color === "VERDE",
-          statusOperativo: d.data().status, 
-          evidence_url: d.data().evidence_url,
-          customer_name: d.data().customer_name // Leemos el nombre de BD
-        }));
+        const points = stopsSnap.docs.map(d => {
+          const data = d.data();
+          return { 
+            id: d.id, 
+            ...data, 
+            isValidated: data.precision_color === "VERDE",
+            statusOperativo: data.status,
+            evidence_url: data.evidence_url,
+            customer_name: data.customer_name
+          }
+        });
+        
         if (points.length > 0) {
           setOrders([...points].sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
         }
       }
     );
-    return () => unsubscribeStops();
-  }, [docId]);
 
     return () => unsubscribeStops();
   }, [docId]);
@@ -94,7 +91,7 @@ export default function DashboardPage() {
       complete: (results) => {
         const parsed = results.data.map((row: any, i: number) => ({
           id: row.id || `PED-${i}-${Date.now()}`,
-          customer_name: row.nombre || row.cliente || row.customer_name || "Sin Nombre", // NUEVO
+          customer_name: row.nombre || row.cliente || row.customer_name || "Cliente Local",
           address: row.direccion || row.address,
           neighborhood: row.barrio || "Analizando...",
           precision_color: "NEUTRAL"
@@ -107,13 +104,12 @@ export default function DashboardPage() {
   const handleOptimize = useCallback(async () => {
     if (orders.length === 0) return;
     setIsOptimizing(true);
-    console.log("LOG: 🚀 Enviando a optimizar...");
     try {
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
-        status: "REQUESTED_V5", // <--- FÍJATE EN EL V5
+        status: "REQUESTED_V5", 
         raw_addresses: orders.map(o => ({ 
           id: o.id, 
-          customer_name: o.customer_name, // NUEVO
+          customer_name: o.customer_name,
           address: o.address,
           neighborhood: o.neighborhood || "N/A", 
           phone: o.phone || "N/A"
@@ -121,10 +117,8 @@ export default function DashboardPage() {
         created_at: serverTimestamp(),
         vehicle_count: 1
       });
-      console.log("LOG: ✅ Documento creado con éxito");
-      setIsOptimizing(false); // <--- CORRECCIÓN CRÍTICA: Apagamos el botón de carga
+      setIsOptimizing(false); 
     } catch (e) {
-      console.error("LOG: ❌ Error al crear documento:", e);
       setIsOptimizing(false);
     }
   }, [orders]);
@@ -139,25 +133,18 @@ export default function DashboardPage() {
     }
   };
 
-  // --- PASO 3: PROTECCIÓN DE ACCESO ---
-  if (loading) {
-    return <div className="h-screen flex items-center justify-center bg-background text-white">Cargando NodoNet...</div>;
-  }
+  if (loading) return <div className="h-screen flex items-center justify-center bg-background text-white">Cargando NodoNet...</div>;
 
   if (!user) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-background p-4 text-center">
         <h1 className="text-4xl font-black text-white mb-8 tracking-tighter">NodoNet AI</h1>
-        <button 
-          onClick={() => signInWithPopup(auth, googleProvider)}
-          className="bg-blue-600 text-white px-8 py-4 rounded-full font-bold text-lg hover:bg-blue-700 transition-all shadow-xl"
-        >
+        <button onClick={() => signInWithPopup(auth, googleProvider)} className="bg-blue-600 text-white px-8 py-4 rounded-full font-bold text-lg hover:bg-blue-700 transition-all shadow-xl">
           Acceder con Google
         </button>
       </div>
     );
   }
-  // ------------------------------------
   
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -181,9 +168,9 @@ export default function DashboardPage() {
               <div className="flex gap-4">
                 <div className="flex-1">
                   <OptimizeButton 
-                    disabled={orders.length === 0 || status === "REQUESTED_V5" || isOptimizing} // <--- CAMBIO AQUÍ
+                    disabled={orders.length === 0 || status === "REQUESTED_V5" || isOptimizing} 
                     onOptimize={handleOptimize} 
-                    loading={isOptimizing || status === "REQUESTED_V5"} // <--- CAMBIO AQUÍ
+                    loading={isOptimizing || status === "REQUESTED_V5"} 
                   />
                 </div>
                 {docId && (
