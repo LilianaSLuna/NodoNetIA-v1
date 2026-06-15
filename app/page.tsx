@@ -181,9 +181,9 @@ export default function DashboardPage() {
               <div className="flex gap-4">
                 <div className="flex-1">
                   <OptimizeButton 
-                    disabled={orders.length === 0 || status === "REQUESTED" || isOptimizing} 
+                    disabled={orders.length === 0 || status === "REQUESTED_V5" || isOptimizing} // <--- CAMBIO AQUÍ
                     onOptimize={handleOptimize} 
-                    loading={isOptimizing || status === "REQUESTED"} 
+                    loading={isOptimizing || status === "REQUESTED_V5"} // <--- CAMBIO AQUÍ
                   />
                 </div>
                 {docId && (
