@@ -62,27 +62,27 @@ export default function DashboardPage() {
     return () => unsubscribeMain();
   }, [user]);
 
-  // 📍 RADAR 2: Escucha EXCLUSIVAMENTE los pines (Depende del docId)
+  // 📍 RADAR 2: Escucha EXCLUSIVAMENTE los pines
   useEffect(() => {
     if (!docId) return;
-    console.log(`LOG: 📍 Iniciando radar de pines para el doc: ${docId}`);
-
     const unsubscribeStops = onSnapshot(
       collection(db, `tenants/SURA/pending_optimizations/${docId}/validated_stops`), 
       (stopsSnap) => {
         const points = stopsSnap.docs.map(d => ({ 
           id: d.id, 
           ...d.data(), 
-          isValidated: d.data().precision_color === "VERDE" 
+          isValidated: d.data().precision_color === "VERDE",
+          statusOperativo: d.data().status, 
+          evidence_url: d.data().evidence_url,
+          customer_name: d.data().customer_name // Leemos el nombre de BD
         }));
-        
         if (points.length > 0) {
-          console.log(`LOG: 📍 Pines recibidos y dibujados: ${points.length}`);
-          // Creamos una copia nueva del arreglo [...points] para forzar a React a dibujar
           setOrders([...points].sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
         }
       }
     );
+    return () => unsubscribeStops();
+  }, [docId]);
 
     return () => unsubscribeStops();
   }, [docId]);
@@ -94,6 +94,7 @@ export default function DashboardPage() {
       complete: (results) => {
         const parsed = results.data.map((row: any, i: number) => ({
           id: row.id || `PED-${i}-${Date.now()}`,
+          customer_name: row.nombre || row.cliente || row.customer_name || "Sin Nombre", // NUEVO
           address: row.direccion || row.address,
           neighborhood: row.barrio || "Analizando...",
           precision_color: "NEUTRAL"
@@ -112,6 +113,7 @@ export default function DashboardPage() {
         status: "REQUESTED_V5", // <--- FÍJATE EN EL V5
         raw_addresses: orders.map(o => ({ 
           id: o.id, 
+          customer_name: o.customer_name, // NUEVO
           address: o.address,
           neighborhood: o.neighborhood || "N/A", 
           phone: o.phone || "N/A"
@@ -163,11 +165,9 @@ export default function DashboardPage() {
       <main className="flex-1 p-4 lg:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
           <StatsCards 
-          // Restamos 2 (origen y destino) para saber los pedidos reales. Usamos Math.max para que nunca sea negativo.
-          totalOrders={Math.max(0, orders.length - 2)} 
-          validatedOrders={orders.filter(o => o.precision_color === "VERDE").length} 
-          // Todo lo que NO sea VERDE, se considera pendiente de revisión (NARANJA o NEUTRAL)
-          pendingOrders={orders.filter(o => o.precision_color !== "VERDE").length} 
+            totalOrders={Math.max(0, orders.length - 2)} 
+            validatedOrders={orders.filter(o => o.precision_color === "VERDE").length} 
+            pendingOrders={orders.filter(o => o.precision_color !== "VERDE" && o.statusOperativo !== "DELIVERED" && o.statusOperativo !== "SKIPPED").length} 
           />
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-6">
