@@ -148,22 +148,35 @@ export default function DriverPage() {
   }, [userLocation, currentStop]);
 
   const routeMetrics = useMemo(() => {
-    if (!stops || stops.length === 0) return { remainingTimeStr: "0h 0m", pendingCount: 0 };
+    if (!stops || stops.length === 0) return { remainingTimeStr: "--h --m", pendingCount: 0 };
     
     const remainingStops = stops.slice(currentStopIndex);
     let totalMinutes = 0;
+    let validTimeFound = false;
     
     remainingStops.forEach(s => {
-      const stopMinutes = Number(s.duration) || Number(s.estimated_duration) || Number(s.time) || 0;
-      totalMinutes += stopMinutes;
+      const stopMinutes = Number(s.duration) || Number(s.estimated_duration) || Number(s.time);
+      if (!isNaN(stopMinutes) && stopMinutes > 0) {
+        totalMinutes += stopMinutes;
+        validTimeFound = true;
+      }
     });
 
     const hours = Math.floor(totalMinutes / 60) || 0;
     const mins = Math.round(totalMinutes % 60) || 0;
 
+    // Lógica inteligente para restar Origen y Destino del conteo de pendientes
+    let pending = remainingStops.length;
+    if (stops.length > 1 && currentStopIndex < stops.length - 1) {
+      pending -= 1; // Restamos el destino final
+    }
+    if (currentStopIndex === 0) {
+      pending -= 1; // Restamos el origen si aún no hemos arrancado
+    }
+
     return {
-      remainingTimeStr: `${hours}h ${mins}m`,
-      pendingCount: remainingStops.length
+      remainingTimeStr: validTimeFound ? `${hours}h ${mins}m` : "Calculando...",
+      pendingCount: Math.max(0, pending)
     };
   }, [stops, currentStopIndex]);
 
@@ -300,8 +313,9 @@ export default function DriverPage() {
 
   if (isLoading) return <div className="h-screen flex items-center justify-center font-black text-slate-100 bg-slate-950 uppercase tracking-widest">Descargando Ruta...</div>;
 
-  const safeCompleted = Number(currentStopIndex) || 0;
-  const safeTotal = Number(stops.length) || 1;
+  // Restamos 2 (origen y destino) para que el total real sea 7
+  const safeCompleted = Math.max(0, currentStopIndex > 0 ? currentStopIndex - 1 : 0);
+  const safeTotal = Math.max(1, stops.length - 2);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col max-w-md mx-auto shadow-2xl relative overflow-hidden font-sans antialiased">
