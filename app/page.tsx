@@ -36,7 +36,7 @@ export default function DashboardPage() {
 
     const q = query(
       collection(db, "tenants/SURA/pending_optimizations"), 
-      where("status", "in", ["REQUESTED", "VALIDATED", "OPTIMIZED"]),
+      where("status", "in", ["REQUESTED_V5", "VALIDATED", "OPTIMIZED"]), // <--- FÍJATE EN EL V5
       orderBy("created_at", "desc"), 
       limit(1)
     );
@@ -97,12 +97,12 @@ export default function DashboardPage() {
     console.log("LOG: 🚀 Enviando a optimizar...");
     try {
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
-        status: "REQUESTED",
+        status: "REQUESTED_V5", // <--- FÍJATE EN EL V5
         raw_addresses: orders.map(o => ({ 
           id: o.id, 
           address: o.address,
-          neighborhood: o.neighborhood || "", // <--- Asegura enviar barrio
-          phone: o.phone || ""                // <--- Asegura enviar teléfono
+          neighborhood: o.neighborhood || "N/A", 
+          phone: o.phone || "N/A"
         })),
         created_at: serverTimestamp(),
         vehicle_count: 1
