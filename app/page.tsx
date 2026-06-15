@@ -29,8 +29,10 @@ export default function DashboardPage() {
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
 
+  // 📡 RADAR 1: Escucha el documento principal (Estado y Ruta)
   useEffect(() => {
     if (!user) return;
+    console.log("LOG: 📡 Iniciando radar principal...");
 
     const q = query(
       collection(db, "tenants/SURA/pending_optimizations"), 
@@ -39,49 +41,51 @@ export default function DashboardPage() {
       limit(1)
     );
 
-    // Creamos un control para apagar el escuchador de pines viejo y evitar choques
-    let unsubscribeStops = () => {};
-
     const unsubscribeMain = onSnapshot(q, (snap) => {
       if (!snap.empty) {
         const latestDoc = snap.docs[0];
         const data = latestDoc.data();
         
+        console.log(`LOG: 📄 Documento detectado: ${data.status}`);
         setDocId(latestDoc.id);
         setStatus(data.status);
-        setEncodedPolyline(data.encoded_polyline || null); // Aquí React recibe la ruta
-
-        // EL SECRETO: Apagamos el radar de pines anterior antes de prender uno nuevo
-        unsubscribeStops();
-
-        // Escuchar los pines validados (Subcolección)
-        unsubscribeStops = onSnapshot(
-          collection(db, `tenants/SURA/pending_optimizations/${latestDoc.id}/validated_stops`), 
-          (stopsSnap) => {
-            const points = stopsSnap.docs.map(d => ({ 
-              id: d.id, ...d.data(), isValidated: d.data().precision_color === "VERDE" 
-            }));
-            
-            if (points.length > 0) {
-              setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
-            }
-        });
+        setEncodedPolyline(data.encoded_polyline || null);
       } else {
-        // Limpiar todo si no hay documento
-        setOrders([]);
+        // Limpiar si no hay rutas activas
         setDocId(null);
         setStatus(null);
         setEncodedPolyline(null);
-        unsubscribeStops();
+        setOrders([]); 
       }
     });
 
-    // Limpieza total cuando el usuario cierra la página
-    return () => {
-      unsubscribeMain();
-      unsubscribeStops();
-    };
+    return () => unsubscribeMain();
   }, [user]);
+
+  // 📍 RADAR 2: Escucha EXCLUSIVAMENTE los pines (Depende del docId)
+  useEffect(() => {
+    if (!docId) return;
+    console.log(`LOG: 📍 Iniciando radar de pines para el doc: ${docId}`);
+
+    const unsubscribeStops = onSnapshot(
+      collection(db, `tenants/SURA/pending_optimizations/${docId}/validated_stops`), 
+      (stopsSnap) => {
+        const points = stopsSnap.docs.map(d => ({ 
+          id: d.id, 
+          ...d.data(), 
+          isValidated: d.data().precision_color === "VERDE" 
+        }));
+        
+        if (points.length > 0) {
+          console.log(`LOG: 📍 Pines recibidos y dibujados: ${points.length}`);
+          // Creamos una copia nueva del arreglo [...points] para forzar a React a dibujar
+          setOrders([...points].sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
+        }
+      }
+    );
+
+    return () => unsubscribeStops();
+  }, [docId]);
 
   const handleFilesUploaded = useCallback((files: File[]) => {
     if (files.length === 0) return;
