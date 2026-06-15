@@ -27,7 +27,6 @@ import { auth, googleProvider } from "@/lib/firebase"
 const NETWORK_TIMEOUT = 7000;
 
 export default function DriverPage() {
-  export default function DriverPage()
   const [stops, setStops] = useState<any[]>([])
   const [docId, setDocId] = useState<string | null>(null)
   const [encodedPolyline, setEncodedPolyline] = useState<string | null>(null)
