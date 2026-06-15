@@ -32,47 +32,55 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!user) return;
 
-    console.log("LOG: 📡 Iniciando radar de Firebase...");
-
     const q = query(
       collection(db, "tenants/SURA/pending_optimizations"), 
-      where("status", "in", ["REQUESTED_V5", "VALIDATED", "OPTIMIZED"]), // <--- FÍJATE EN EL V5
+      where("status", "in", ["REQUESTED_V5", "VALIDATED", "OPTIMIZED"]),
       orderBy("created_at", "desc"), 
       limit(1)
     );
 
-    const unsubscribe = onSnapshot(q, (snap) => {
+    // Creamos un control para apagar el escuchador de pines viejo y evitar choques
+    let unsubscribeStops = () => {};
+
+    const unsubscribeMain = onSnapshot(q, (snap) => {
       if (!snap.empty) {
         const latestDoc = snap.docs[0];
         const data = latestDoc.data();
         
-        console.log(`LOG: 📄 Documento detectado [${latestDoc.id}] | Estado: ${data.status}`);
-        
         setDocId(latestDoc.id);
         setStatus(data.status);
-        setEncodedPolyline(data.encoded_polyline || null);
+        setEncodedPolyline(data.encoded_polyline || null); // Aquí React recibe la ruta
+
+        // EL SECRETO: Apagamos el radar de pines anterior antes de prender uno nuevo
+        unsubscribeStops();
 
         // Escuchar los pines validados (Subcolección)
-        onSnapshot(collection(db, `tenants/SURA/pending_optimizations/${latestDoc.id}/validated_stops`), (stopsSnap) => {
-          console.log(`LOG: 📍 Subcolección recibida. Pines encontrados: ${stopsSnap.size}`);
-          const points = stopsSnap.docs.map(d => ({ 
-            id: d.id, ...d.data(), isValidated: d.data().precision_color === "VERDE" 
-          }));
-          
-          // Solo actualizamos la tabla si Firebase nos devuelve pines reales
-          if (points.length > 0) {
-            setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
-          }
+        unsubscribeStops = onSnapshot(
+          collection(db, `tenants/SURA/pending_optimizations/${latestDoc.id}/validated_stops`), 
+          (stopsSnap) => {
+            const points = stopsSnap.docs.map(d => ({ 
+              id: d.id, ...d.data(), isValidated: d.data().precision_color === "VERDE" 
+            }));
+            
+            if (points.length > 0) {
+              setOrders(points.sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
+            }
         });
       } else {
-        console.log("LOG: 📭 No hay documentos activos. Limpiando tablero.");
+        // Limpiar todo si no hay documento
         setOrders([]);
         setDocId(null);
         setStatus(null);
         setEncodedPolyline(null);
+        unsubscribeStops();
       }
     });
-    return () => unsubscribe();
+
+    // Limpieza total cuando el usuario cierra la página
+    return () => {
+      unsubscribeMain();
+      unsubscribeStops();
+    };
   }, [user]);
 
   const handleFilesUploaded = useCallback((files: File[]) => {
