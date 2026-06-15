@@ -70,7 +70,7 @@ export function MapView({ orders, selectedOrderId, onSelectOrder, docId, encoded
 
         // 2. DISPARADOR DE RE-OPTIMIZACIÓN: Despierta al Agente v.53
         await updateDoc(mainDocRef, {
-          status: "REQUESTED",
+          status: "REQUESTED_V5",
           updated_at: serverTimestamp()
         });
 
