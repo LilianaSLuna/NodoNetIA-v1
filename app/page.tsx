@@ -146,9 +146,11 @@ export default function DashboardPage() {
       <main className="flex-1 p-4 lg:p-6">
         <div className="mx-auto max-w-7xl space-y-6">
           <StatsCards 
-            totalOrders={orders.length} 
-            validatedOrders={orders.filter(o => o.precision_color === "VERDE").length} 
-            pendingOrders={orders.filter(o => o.precision_color === "NARANJA").length} 
+          // Restamos 2 (origen y destino) para saber los pedidos reales. Usamos Math.max para que nunca sea negativo.
+          totalOrders={Math.max(0, orders.length - 2)} 
+          validatedOrders={orders.filter(o => o.precision_color === "VERDE").length} 
+          // Todo lo que NO sea VERDE, se considera pendiente de revisión (NARANJA o NEUTRAL)
+          pendingOrders={orders.filter(o => o.precision_color !== "VERDE").length} 
           />
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-6">
