@@ -103,9 +103,15 @@ export default function DriverPage() {
           const fetchedStops = snap.docs.map(d => {
             const data = d.data();
             return {
-              id: d.id, ...data,
-              lat: Number(data.lat) || 0, lng: Number(data.lng) || 0,
-              duration: Number(data.duration) || 0, time: Number(data.time) || 0, order_index: Number(data.order_index) || 0
+              id: d.id, 
+              ...data,
+              // 🔥 NORMALIZACIÓN MAESTRA: Sincroniza el formato del Administrador con el del Repartidor
+              customerName: data.customer_name || data.customerName || "SURA Asignado",
+              lat: Number(data.lat) || 0, 
+              lng: Number(data.lng) || 0,
+              duration: Number(data.duration) || Number(data.estimated_duration) || 0, 
+              time: Number(data.time) || 0, 
+              order_index: Number(data.order_index) || 0
             };
           });
           

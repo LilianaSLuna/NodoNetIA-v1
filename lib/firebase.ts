@@ -1,11 +1,11 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
-import { getFirestore, enableIndexedDbPersistence } from "firebase/firestore";
+import { getFirestore, enableMultiTabIndexedDbPersistence } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
 /**
- * Hito 4.0 - Versión v.2.1
- * Configuración de Firebase - Soporte Offline, Storage y Auth
+ * Hito 4.0 - Versión v.2.2
+ * Configuración de Firebase - Soporte Multi-Tab Offline, Storage y Auth
  */
 
 const firebaseConfig = {
@@ -24,14 +24,10 @@ const storage = getStorage(app);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
-// Habilitar la "magia" de persistencia Offline solo en el lado del cliente
+// Habilitar persistencia compartida para evitar bloqueos entre PC, Mac y Celulares
 if (typeof window !== "undefined") {
-  enableIndexedDbPersistence(db).catch((err) => {
-    if (err.code === 'failed-precondition') {
-      console.warn("Persistencia advertencia: Múltiples pestañas abiertas.");
-    } else if (err.code === 'unimplemented') {
-      console.warn("El navegador no soporta persistencia offline.");
-    }
+  enableMultiTabIndexedDbPersistence(db).catch((err) => {
+    console.warn("Advertencia de sincronización offline:", err.message);
   });
 }
 
