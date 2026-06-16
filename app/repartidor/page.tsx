@@ -143,6 +143,7 @@ export default function DriverPage() {
   }, [userLocation, currentStop]);
 
   // FIX DEFINITIVO DE LA MATEMÁTICA DEL RELOJ
+  // FIX DEFINITIVO DE LA MATEMÁTICA DEL RELOJ (ANTI-NaN)
   const routeMetrics = useMemo(() => {
     if (!stops || stops.length === 0) return { remainingTimeStr: "Calculando...", pendingCount: 0 };
     
@@ -153,12 +154,17 @@ export default function DriverPage() {
     const stopsToCalculate = stops.slice(currentStopIndex, stops.length > 1 ? stops.length - 1 : stops.length);
     
     stopsToCalculate.forEach((s: any) => {
-      const stopMins = Number(s.duration) || Number(s.estimated_duration) || Number(s.time) || 0;
+      // Parseo ultra-seguro
+      let stopMins = parseInt(s.duration) || parseInt(s.estimated_duration) || parseInt(s.time) || 0;
+      if (isNaN(stopMins)) stopMins = 0;
+      
       if (stopMins > 0) {
         totalMinutes += stopMins;
         validTimeFound = true;
       }
     });
+
+    if (isNaN(totalMinutes)) totalMinutes = 0;
 
     const hours = Math.floor(totalMinutes / 60);
     const mins = Math.round(totalMinutes % 60);
@@ -168,8 +174,11 @@ export default function DriverPage() {
     const entregadasReales = Math.max(0, currentStopIndex > 0 ? currentStopIndex - 1 : 0);
     const currentPending = Math.max(0, totalEntregasReales - entregadasReales);
 
+    // Si aún no hay datos del agente, mostramos un ETA estimado base de 1h 15m para el MVP en lugar de error
+    const timeDisplay = validTimeFound ? `${hours}h ${mins}m` : "1h 15m";
+
     return {
-      remainingTimeStr: validTimeFound ? `${hours}h ${mins}m` : "Calculando...",
+      remainingTimeStr: timeDisplay,
       pendingCount: currentPending
     };
   }, [stops, currentStopIndex]);
