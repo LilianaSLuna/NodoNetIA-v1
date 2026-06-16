@@ -105,20 +105,26 @@ export default function DashboardPage() {
     if (orders.length === 0) return;
     setIsOptimizing(true);
     try {
+      // Filtro anti-caídas: Limpiamos cualquier 'undefined' que hace fallar a Firestore
+      const cleanAddresses = orders.map((o: any) => ({
+        id: o.id || `PED-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        customer_name: o.customer_name || "Cliente Local",
+        address: o.address || "Dirección no especificada",
+        neighborhood: o.neighborhood || "N/A",
+        phone: o.phone || "N/A"
+      }));
+
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
         status: "REQUESTED_V5", 
-        raw_addresses: orders.map((o: any) => ({ 
-          id: o.id, 
-          customer_name: o.customer_name,
-          address: o.address,
-          neighborhood: o.neighborhood || "N/A", 
-          phone: o.phone || "N/A"
-        })),
+        raw_addresses: cleanAddresses,
         created_at: serverTimestamp(),
         vehicle_count: 1
       });
       setIsOptimizing(false); 
-    } catch (e) {
+    } catch (e: any) {
+      // Si Firebase rechaza el documento, ahora nos gritará el error exacto
+      console.error("🔥 Error CRÍTICO al guardar en Firestore:", e);
+      alert(`Error al contactar la base de datos: ${e.message}`);
       setIsOptimizing(false);
     }
   }, [orders]);
