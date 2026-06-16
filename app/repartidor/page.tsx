@@ -48,8 +48,8 @@ export default function DriverPage() {
   useEffect(() => {
     if (!("geolocation" in navigator)) return;
     const watchId = navigator.geolocation.watchPosition(
-      (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => console.warn("Permiso de GPS denegado o lento:", err),
+      (pos: any) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      (err: any) => console.warn("Permiso de GPS denegado o lento:", err),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
@@ -58,9 +58,9 @@ export default function DriverPage() {
   useEffect(() => {
     if (isOnline && docId && stops.length > 0) {
       const flushOfflineQueue = async () => {
-        const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
+        const queue: any[] = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
         if (queue.length === 0) return;
-        const remainingQueue = [];
+        const remainingQueue: any[] = [];
         for (const item of queue) {
           try {
             let photoUrl = null;
@@ -89,7 +89,7 @@ export default function DriverPage() {
     if (!user) return; 
 
     const q = query(collection(db, "tenants/SURA/pending_optimizations"), orderBy("created_at", "desc"), limit(1));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const unsubscribe = onSnapshot(q, (snapshot: any) => {
       if (snapshot.empty) { setIsLoading(false); return; }
       
       const latest = snapshot.docs[0];
@@ -98,8 +98,8 @@ export default function DriverPage() {
       setEncodedPolyline(latest.data().encoded_polyline || null);
       
       onSnapshot(query(collection(db, `tenants/SURA/pending_optimizations/${id}/validated_stops`), orderBy("order_index", "asc")), 
-        (snap) => {
-          const fetchedStops = snap.docs.map(d => {
+        (snap: any) => {
+          const fetchedStops = snap.docs.map((d: any) => {
             const data = d.data();
             return {
               id: d.id, ...data,
@@ -117,12 +117,12 @@ export default function DriverPage() {
           }
           setIsLoading(false);
         },
-        (error) => {
+        (error: any) => {
           console.error("Error al leer paradas:", error);
           setIsLoading(false);
         }
       );
-    }, (error) => {
+    }, (error: any) => {
       console.error("Error al leer documento:", error);
       setIsLoading(false);
     });
@@ -152,7 +152,7 @@ export default function DriverPage() {
     // Ignoramos el último pin porque es el destino final
     const stopsToCalculate = stops.slice(currentStopIndex, stops.length > 1 ? stops.length - 1 : stops.length);
     
-    stopsToCalculate.forEach(s => {
+    stopsToCalculate.forEach((s: any) => {
       const stopMins = Number(s.duration) || Number(s.estimated_duration) || Number(s.time) || 0;
       if (stopMins > 0) {
         totalMinutes += stopMins;
@@ -179,7 +179,7 @@ export default function DriverPage() {
     setIsUploading(true); 
 
     const finalizeLocal = () => {
-      const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
+      const queue: any[] = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
       const newPayload = { 
         docId, stopId: currentStop.id, evidencePhoto,
         data: { status: "DELIVERED", confirmed_coordinate: userLocation || { lat: currentStop.lat, lng: currentStop.lng }, is_ground_truth: true, delivered_at: new Date().toISOString(), offline_flag: true } 
@@ -235,7 +235,7 @@ export default function DriverPage() {
     setIsUploading(true);
 
     const finalizeLocalSkip = () => {
-      const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
+      const queue: any[] = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
       queue.push({
         docId, stopId: currentStop.id, evidencePhoto: null,
         data: { status: "SKIPPED", delivered_at: new Date().toISOString(), offline_flag: true }

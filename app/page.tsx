@@ -29,6 +29,7 @@ export default function DashboardPage() {
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
 
+  // 📡 RADAR 1: Escucha el documento principal
   useEffect(() => {
     if (!user) return;
     const q = query(
@@ -38,7 +39,7 @@ export default function DashboardPage() {
       limit(1)
     );
 
-    const unsubscribeMain = onSnapshot(q, (snap) => {
+    const unsubscribeMain = onSnapshot(q, (snap: any) => {
       if (!snap.empty) {
         const latestDoc = snap.docs[0];
         const data = latestDoc.data();
@@ -56,12 +57,13 @@ export default function DashboardPage() {
     return () => unsubscribeMain();
   }, [user]);
 
+  // 📍 RADAR 2: Escucha EXCLUSIVAMENTE los pines con datos de campo
   useEffect(() => {
     if (!docId) return;
     const unsubscribeStops = onSnapshot(
       collection(db, `tenants/SURA/pending_optimizations/${docId}/validated_stops`), 
-      (stopsSnap) => {
-        const points = stopsSnap.docs.map(d => {
+      (stopsSnap: any) => {
+        const points = stopsSnap.docs.map((d: any) => {
           const data = d.data();
           return { 
             id: d.id, 
@@ -74,7 +76,7 @@ export default function DashboardPage() {
         });
         
         if (points.length > 0) {
-          setOrders([...points].sort((a,b) => (a.order_index ?? 0) - (b.order_index ?? 0)));
+          setOrders([...points].sort((a: any, b: any) => (a.order_index ?? 0) - (b.order_index ?? 0)));
         }
       }
     );
@@ -86,7 +88,7 @@ export default function DashboardPage() {
     if (files.length === 0) return;
     Papa.parse(files[0], {
       header: true, skipEmptyLines: true,
-      complete: (results) => {
+      complete: (results: any) => {
         const parsed = results.data.map((row: any, i: number) => ({
           id: row.id || `PED-${i}-${Date.now()}`,
           customer_name: row.nombre || row.cliente || row.customer_name || "Cliente Local",
@@ -105,7 +107,7 @@ export default function DashboardPage() {
     try {
       await addDoc(collection(db, "tenants/SURA/pending_optimizations"), {
         status: "REQUESTED_V5", 
-        raw_addresses: orders.map(o => ({ 
+        raw_addresses: orders.map((o: any) => ({ 
           id: o.id, 
           customer_name: o.customer_name,
           address: o.address,
@@ -151,8 +153,8 @@ export default function DashboardPage() {
         <div className="mx-auto max-w-7xl space-y-6">
           <StatsCards 
             totalOrders={Math.max(0, orders.length - 2)} 
-            validatedOrders={orders.filter(o => o.precision_color === "VERDE").length} 
-            pendingOrders={orders.filter(o => o.precision_color !== "VERDE" && o.statusOperativo !== "DELIVERED" && o.statusOperativo !== "SKIPPED").length} 
+            validatedOrders={orders.filter((o: any) => o.precision_color === "VERDE").length} 
+            pendingOrders={orders.filter((o: any) => o.precision_color !== "VERDE" && o.statusOperativo !== "DELIVERED" && o.statusOperativo !== "SKIPPED").length} 
           />
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-6">
