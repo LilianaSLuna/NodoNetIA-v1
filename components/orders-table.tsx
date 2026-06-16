@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
 export interface Order {
+  is_contingency?: boolean
   id: string
   address: string
   neighborhood: string
@@ -78,7 +79,15 @@ export function OrdersTable({ orders, selectedOrderId, onSelectOrder }: OrdersTa
                 <TableCell className="text-center">
                   {order.statusOperativo === "DELIVERED" ? (
                     <div className="flex flex-col items-center gap-1">
-                      <Badge className="bg-emerald-600 hover:bg-emerald-700 border-none">Entregado</Badge>
+                      {/* SI ES CONTINGENCIA, SE PINTA DE NARANJA */}
+                      {order.is_contingency ? (
+                        <Badge className="bg-amber-600 hover:bg-amber-700 border-none flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" /> Fuera de Rango
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-emerald-600 hover:bg-emerald-700 border-none">Entregado</Badge>
+                      )}
+                      
                       {order.evidence_url && (
                         <a href={order.evidence_url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="flex items-center gap-1 text-[11px] text-blue-400 hover:text-blue-300 transition-colors">
                           <Camera className="h-3 w-3"/> Ver Evidencia

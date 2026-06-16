@@ -71,7 +71,8 @@ export default function DashboardPage() {
             isValidated: data.precision_color === "VERDE",
             statusOperativo: data.status,
             evidence_url: data.evidence_url,
-            customer_name: data.customer_name
+            customer_name: data.customer_name,
+            is_contingency: data.is_contingency // <--- LEE LA BANDERA
           }
         });
         

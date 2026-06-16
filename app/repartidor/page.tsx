@@ -142,7 +142,6 @@ export default function DriverPage() {
     return (R * c) <= 50; 
   }, [userLocation, currentStop]);
 
-  // FIX DEFINITIVO DE LA MATEMÁTICA DEL RELOJ
   // FIX DEFINITIVO DE LA MATEMÁTICA DEL RELOJ (ANTI-NaN)
   const routeMetrics = useMemo(() => {
     if (!stops || stops.length === 0) return { remainingTimeStr: "Calculando...", pendingCount: 0 };
@@ -150,7 +149,6 @@ export default function DriverPage() {
     let totalMinutes = 0;
     let validTimeFound = false;
     
-    // Ignoramos el último pin porque es el destino final
     const stopsToCalculate = stops.slice(currentStopIndex, stops.length > 1 ? stops.length - 1 : stops.length);
     
     stopsToCalculate.forEach((s: any) => {
@@ -164,12 +162,9 @@ export default function DriverPage() {
       }
     });
 
-    if (isNaN(totalMinutes)) totalMinutes = 0;
+    const hours = Math.floor(totalMinutes / 60) || 0;
+    const mins = Math.round(totalMinutes % 60) || 0;
 
-    const hours = Math.floor(totalMinutes / 60);
-    const mins = Math.round(totalMinutes % 60);
-
-    // Contadores limpios
     const totalEntregasReales = Math.max(0, stops.length - 2);
     const entregadasReales = Math.max(0, currentStopIndex > 0 ? currentStopIndex - 1 : 0);
     const currentPending = Math.max(0, totalEntregasReales - entregadasReales);
@@ -191,7 +186,14 @@ export default function DriverPage() {
       const queue: any[] = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
       const newPayload = { 
         docId, stopId: currentStop.id, evidencePhoto,
-        data: { status: "DELIVERED", confirmed_coordinate: userLocation || { lat: currentStop.lat, lng: currentStop.lng }, is_ground_truth: true, delivered_at: new Date().toISOString(), offline_flag: true } 
+        data: { 
+          status: "DELIVERED", 
+          confirmed_coordinate: userLocation || { lat: currentStop.lat, lng: currentStop.lng }, 
+          is_ground_truth: true, 
+          delivered_at: new Date().toISOString(), 
+          offline_flag: true,
+          is_contingency: isContingencyActive // <--- BANDERA OFFLINE
+        } 
       };
       queue.push(newPayload);
       try { localStorage.setItem('offline_deliveries', JSON.stringify(queue)); } 
@@ -215,7 +217,10 @@ export default function DriverPage() {
               photoUrl = await getDownloadURL(sRef);
             }
             await updateDoc(doc(db, `tenants/SURA/pending_optimizations/${docId}/validated_stops`, currentStop.id), {
-              status: "DELIVERED", evidence_url: photoUrl, delivered_at: serverTimestamp()
+              status: "DELIVERED", 
+              evidence_url: photoUrl, 
+              delivered_at: serverTimestamp(),
+              is_contingency: isContingencyActive // <--- BANDERA ONLINE
             });
           })(),
           new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), NETWORK_TIMEOUT))
