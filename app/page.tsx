@@ -29,7 +29,6 @@ export default function DashboardPage() {
   const [isOptimizing, setIsOptimizing] = useState(false)
   const [isArchiving, setIsArchiving] = useState(false)
 
-  // 📡 RADAR 1: Escucha el documento principal
   useEffect(() => {
     if (!user) return;
     const q = query(
@@ -57,7 +56,6 @@ export default function DashboardPage() {
     return () => unsubscribeMain();
   }, [user]);
 
-  // 📍 RADAR 2: Escucha EXCLUSIVAMENTE los pines con datos de campo
   useEffect(() => {
     if (!docId) return;
     const unsubscribeStops = onSnapshot(

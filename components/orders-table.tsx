@@ -14,9 +14,9 @@ export interface Order {
   isValidated: boolean
   lat: number
   lng: number
-  statusOperativo?: string    // NUEVO: Para saber si está DELIVERED o SKIPPED
-  evidence_url?: string | null // NUEVO: Link a la foto
-  customer_name?: string      // NUEVO: Nombre del cliente
+  statusOperativo?: string
+  evidence_url?: string | null
+  customer_name?: string
 }
 
 interface OrdersTableProps {
@@ -52,10 +52,9 @@ export function OrdersTable({ orders, selectedOrderId, onSelectOrder }: OrdersTa
                 )}
               >
                 <TableCell className="font-mono text-xs font-medium text-muted-foreground">
-                  {order.id.split('-').slice(0,2).join('-')} {/* Acorta el ID visualmente */}
+                  {order.id.split('-').slice(0,2).join('-')}
                 </TableCell>
                 
-                {/* COLUMNA DE CLIENTE */}
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-muted-foreground" />
@@ -76,7 +75,6 @@ export function OrdersTable({ orders, selectedOrderId, onSelectOrder }: OrdersTa
                   </Badge>
                 </TableCell>
                 
-                {/* COLUMNA DE ESTADO CON EVIDENCIA */}
                 <TableCell className="text-center">
                   {order.statusOperativo === "DELIVERED" ? (
                     <div className="flex flex-col items-center gap-1">

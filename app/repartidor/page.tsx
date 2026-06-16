@@ -49,7 +49,7 @@ export default function DriverPage() {
     if (!("geolocation" in navigator)) return;
     const watchId = navigator.geolocation.watchPosition(
       (pos) => setUserLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      (err) => console.warn("Permiso de GPS denegado o lento, continuando sin él:", err),
+      (err) => console.warn("Permiso de GPS denegado o lento:", err),
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
     return () => navigator.geolocation.clearWatch(watchId);
@@ -60,7 +60,6 @@ export default function DriverPage() {
       const flushOfflineQueue = async () => {
         const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
         if (queue.length === 0) return;
-
         const remainingQueue = [];
         for (const item of queue) {
           try {
@@ -71,7 +70,7 @@ export default function DriverPage() {
               photoUrl = await getDownloadURL(sRef);
             }
             await updateDoc(doc(db, `tenants/SURA/pending_optimizations/${item.docId}/validated_stops`, item.stopId), {
-              status: "DELIVERED",
+              status: item.data.status,
               evidence_url: photoUrl,
               delivered_at: serverTimestamp(),
               confirmed_coordinate: item.data.confirmed_coordinate || null
@@ -103,15 +102,10 @@ export default function DriverPage() {
           const fetchedStops = snap.docs.map(d => {
             const data = d.data();
             return {
-              id: d.id, 
-              ...data,
-              // 🔥 NORMALIZACIÓN MAESTRA: Sincroniza el formato del Administrador con el del Repartidor
+              id: d.id, ...data,
               customerName: data.customer_name || data.customerName || "SURA Asignado",
-              lat: Number(data.lat) || 0, 
-              lng: Number(data.lng) || 0,
-              duration: Number(data.duration) || Number(data.estimated_duration) || 0, 
-              time: Number(data.time) || 0, 
-              order_index: Number(data.order_index) || 0
+              lat: Number(data.lat) || 0, lng: Number(data.lng) || 0,
+              duration: Number(data.duration) || 0, time: Number(data.time) || 0, order_index: Number(data.order_index) || 0
             };
           });
           
@@ -124,65 +118,59 @@ export default function DriverPage() {
           setIsLoading(false);
         },
         (error) => {
-          console.error("Error al leer paradas (Posible Auth):", error);
+          console.error("Error al leer paradas:", error);
           setIsLoading(false);
         }
       );
     }, (error) => {
-      console.error("Error al leer documento principal:", error);
+      console.error("Error al leer documento:", error);
       setIsLoading(false);
     });
 
     return () => unsubscribe();
   }, [user]);
 
-  // --- REGLA DE REACT: TODOS LOS HOOKS DEBEN IR ANTES DE LOS RETURNS ---
   const currentStop = useMemo(() => stops[currentStopIndex] || null, [stops, currentStopIndex]);
 
   const isNear = useMemo(() => {
-    if (!userLocation || !currentStop || typeof currentStop.lat !== 'number' || typeof currentStop.lng !== 'number') {
-      return false;
-    }
+    if (!userLocation || !currentStop || typeof currentStop.lat !== 'number' || typeof currentStop.lng !== 'number') return false;
     const R = 6371000; 
     const dLat = (currentStop.lat - userLocation.lat) * Math.PI / 180;
     const dLon = (currentStop.lng - userLocation.lng) * Math.PI / 180;
-    const a = 
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(userLocation.lat * Math.PI / 180) * Math.cos(currentStop.lat * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(userLocation.lat * Math.PI / 180) * Math.cos(currentStop.lat * Math.PI / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return (R * c) <= 50; 
   }, [userLocation, currentStop]);
 
+  // FIX DEFINITIVO DE LA MATEMÁTICA DEL RELOJ
   const routeMetrics = useMemo(() => {
-    if (!stops || stops.length === 0) return { remainingTimeStr: "--h --m", pendingCount: 0 };
+    if (!stops || stops.length === 0) return { remainingTimeStr: "Calculando...", pendingCount: 0 };
     
-    const remainingStops = stops.slice(currentStopIndex);
     let totalMinutes = 0;
     let validTimeFound = false;
     
-    remainingStops.forEach(s => {
-      const stopMinutes = Number(s.duration) || Number(s.estimated_duration) || Number(s.time);
-      if (!isNaN(stopMinutes) && stopMinutes > 0) {
-        totalMinutes += stopMinutes;
+    // Ignoramos el último pin porque es el destino final
+    const stopsToCalculate = stops.slice(currentStopIndex, stops.length > 1 ? stops.length - 1 : stops.length);
+    
+    stopsToCalculate.forEach(s => {
+      const stopMins = Number(s.duration) || Number(s.estimated_duration) || Number(s.time) || 0;
+      if (stopMins > 0) {
+        totalMinutes += stopMins;
         validTimeFound = true;
       }
     });
 
-    const hours = Math.floor(totalMinutes / 60) || 0;
-    const mins = Math.round(totalMinutes % 60) || 0;
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = Math.round(totalMinutes % 60);
 
-    // Lógica inteligente para restar Origen y Destino del conteo de pendientes
-    let pending = remainingStops.length;
-    if (stops.length > 1 && currentStopIndex < stops.length - 1) {
-      pending -= 1; // Restamos el destino final
-    }
-    if (currentStopIndex === 0) {
-      pending -= 1; // Restamos el origen si aún no hemos arrancado
-    }
+    // Contadores limpios
+    const totalEntregasReales = Math.max(0, stops.length - 2);
+    const entregadasReales = Math.max(0, currentStopIndex > 0 ? currentStopIndex - 1 : 0);
+    const currentPending = Math.max(0, totalEntregasReales - entregadasReales);
 
     return {
       remainingTimeStr: validTimeFound ? `${hours}h ${mins}m` : "Calculando...",
-      pendingCount: Math.max(0, pending)
+      pendingCount: currentPending
     };
   }, [stops, currentStopIndex]);
 
@@ -194,27 +182,16 @@ export default function DriverPage() {
       const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
       const newPayload = { 
         docId, stopId: currentStop.id, evidencePhoto,
-        data: { 
-          status: "DELIVERED", confirmed_coordinate: userLocation || { lat: currentStop.lat, lng: currentStop.lng },
-          is_ground_truth: true, delivered_at: new Date().toISOString(), offline_flag: true
-        } 
+        data: { status: "DELIVERED", confirmed_coordinate: userLocation || { lat: currentStop.lat, lng: currentStop.lng }, is_ground_truth: true, delivered_at: new Date().toISOString(), offline_flag: true } 
       };
-      
       queue.push(newPayload);
-      
-      try {
-        localStorage.setItem('offline_deliveries', JSON.stringify(queue));
-      } catch (quotaError) {
-        console.warn("localStorage quota exceeded, saving textual manifest payload without image element.");
+      try { localStorage.setItem('offline_deliveries', JSON.stringify(queue)); } 
+      catch (quotaError) {
         newPayload.evidencePhoto = null; 
         const lightQueue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
         lightQueue.push(newPayload);
-        try {
-          localStorage.setItem('offline_deliveries', JSON.stringify(lightQueue));
-        } catch (innerErr) {
-          localStorage.removeItem('offline_deliveries');
-          localStorage.setItem('offline_deliveries', JSON.stringify([newPayload]));
-        }
+        try { localStorage.setItem('offline_deliveries', JSON.stringify(lightQueue)); } 
+        catch (innerErr) { localStorage.setItem('offline_deliveries', JSON.stringify([newPayload])); }
       }
     };
 
@@ -235,58 +212,8 @@ export default function DriverPage() {
           new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), NETWORK_TIMEOUT))
         ]);
       } else { finalizeLocal(); }
-    } catch (e) { 
-      finalizeLocal(); 
-    } finally {
-      flushSync(() => {
-        setIsUploading(false);
-        setIsTransitioning(true);
-      });
-
-      setTimeout(() => {
-        flushSync(() => {
-          setEvidencePhoto(null);
-          setIsContingencyActive(false);
-          const nextIndex = currentStopIndex + 1;
-          if (nextIndex < stops.length) {
-            setCurrentStopIndex(nextIndex);
-            localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
-          }
-        });
-
-        setTimeout(() => {
-          setIsTransitioning(false);
-        }, 600);
-      }, 1200);
-    }
-  };
-
-  const handleSkip = async () => {
-    if (!currentStop || !docId || isUploading) return;
-    setIsUploading(true);
-
-    const finalizeLocalSkip = () => {
-      const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
-      queue.push({
-        docId, stopId: currentStop.id, evidencePhoto: null,
-        data: { 
-          status: "SKIPPED", 
-          delivered_at: new Date().toISOString(), 
-          offline_flag: true 
-        }
-      });
-      localStorage.setItem('offline_deliveries', JSON.stringify(queue));
-    };
-
-    try {
-      if (isOnline) {
-        await updateDoc(doc(db, `tenants/SURA/pending_optimizations/${docId}/validated_stops`, currentStop.id), {
-          status: "SKIPPED", skipped_at: serverTimestamp()
-        });
-      } else { finalizeLocalSkip(); }
-    } catch (e) {
-      finalizeLocalSkip();
-    } finally {
+    } catch (e) { finalizeLocal(); } 
+    finally {
       flushSync(() => { setIsUploading(false); setIsTransitioning(true); });
       setTimeout(() => {
         flushSync(() => {
@@ -303,9 +230,44 @@ export default function DriverPage() {
     }
   };
 
-  // --- CONDICIONALES DE RENDERIZADO VISUAL AQUÍ AL FINAL ---
+  const handleSkip = async () => {
+    if (!currentStop || !docId || isUploading) return;
+    setIsUploading(true);
+
+    const finalizeLocalSkip = () => {
+      const queue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
+      queue.push({
+        docId, stopId: currentStop.id, evidencePhoto: null,
+        data: { status: "SKIPPED", delivered_at: new Date().toISOString(), offline_flag: true }
+      });
+      localStorage.setItem('offline_deliveries', JSON.stringify(queue));
+    };
+
+    try {
+      if (isOnline) {
+        await updateDoc(doc(db, `tenants/SURA/pending_optimizations/${docId}/validated_stops`, currentStop.id), {
+          status: "SKIPPED", skipped_at: serverTimestamp()
+        });
+      } else { finalizeLocalSkip(); }
+    } catch (e) { finalizeLocalSkip(); } 
+    finally {
+      flushSync(() => { setIsUploading(false); setIsTransitioning(true); });
+      setTimeout(() => {
+        flushSync(() => {
+          setEvidencePhoto(null);
+          setIsContingencyActive(false);
+          const nextIndex = currentStopIndex + 1;
+          if (nextIndex < stops.length) {
+            setCurrentStopIndex(nextIndex);
+            localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
+          }
+        });
+        setTimeout(() => setIsTransitioning(false), 600);
+      }, 1200);
+    }
+  };
+
   if (authLoading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white font-black uppercase tracking-widest">Autenticando...</div>;
-  
   if (!user) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-slate-950 p-4 text-center">
@@ -316,65 +278,32 @@ export default function DriverPage() {
       </div>
     );
   }
-
   if (isLoading) return <div className="h-screen flex items-center justify-center font-black text-slate-100 bg-slate-950 uppercase tracking-widest">Descargando Ruta...</div>;
 
-  // Restamos 2 (origen y destino) para que el total real sea 7
   const safeCompleted = Math.max(0, currentStopIndex > 0 ? currentStopIndex - 1 : 0);
   const safeTotal = Math.max(1, stops.length - 2);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col max-w-md mx-auto shadow-2xl relative overflow-hidden font-sans antialiased">
       <DriverHeader isOnline={isOnline} />
-      
       <main key={`stop-view-index-${currentStopIndex}`} className="flex-1 overflow-y-auto pb-44">
         <div className="px-4 pt-4">
-          <DriverMap 
-            stops={stops} 
-            currentStopIndex={currentStopIndex} 
-            encodedPolyline={encodedPolyline} 
-            userLocation={userLocation} 
-          />
+          <DriverMap stops={stops} currentStopIndex={currentStopIndex} encodedPolyline={encodedPolyline} userLocation={userLocation} />
         </div>
-
         <div className="px-4 py-4">
           <RouteProgress completed={safeCompleted} total={safeTotal} remainingTime={routeMetrics.remainingTimeStr} pendingStops={routeMetrics.pendingCount} />
         </div>
-
         <div className="px-4">
-          <CurrentStop 
-            stop={currentStop} 
-            evidencePhoto={evidencePhoto}
-            onPhotoCapture={setEvidencePhoto}
-            isUploading={isUploading}
-            isVisible={!isTransitioning}
-            hasActiveRoute={stops.length > 0}
-          />
+          <CurrentStop stop={currentStop} evidencePhoto={evidencePhoto} onPhotoCapture={setEvidencePhoto} isUploading={isUploading} isVisible={!isTransitioning} hasActiveRoute={stops.length > 0} />
         </div>
-
         <div className="px-4 pb-4 mt-6">
           <NextStops stops={stops} currentIndex={currentStopIndex} />
         </div>
       </main>
-
-      <ActionPanel 
-        isNear={isNear}
-        isUploading={isUploading}
-        isContingencyActive={isContingencyActive}
-        onToggleContingency={() => setIsContingencyActive(!isContingencyActive)}
-        onComplete={handleComplete}
-        onSkip={handleSkip} 
-        isVisible={!!currentStop && !isTransitioning}
-      />
-
-      <div className={cn(
-        "fixed inset-0 z-[9999] bg-slate-900 flex flex-col items-center justify-center transition-all duration-500 ease-out",
-        isTransitioning ? "opacity-100 scale-100 visible" : "opacity-0 scale-105 invisible pointer-events-none"
-      )}>
+      <ActionPanel isNear={isNear} isUploading={isUploading} isContingencyActive={isContingencyActive} onToggleContingency={() => setIsContingencyActive(!isContingencyActive)} onComplete={handleComplete} onSkip={handleSkip} isVisible={!!currentStop && !isTransitioning} />
+      <div className={cn("fixed inset-0 z-[9999] bg-slate-900 flex flex-col items-center justify-center transition-all duration-500 ease-out", isTransitioning ? "opacity-100 scale-100 visible" : "opacity-0 scale-105 invisible pointer-events-none")}>
         <div className="text-8xl mb-6 drop-shadow-lg animate-bounce">⚡</div>
-        <h2 className="text-blue-500 font-black text-4xl tracking-tighter uppercase italic text-center px-8 leading-none">
-          REGISTRO<br/><span className="text-white">PROCESADO</span>
-        </h2>
+        <h2 className="text-blue-500 font-black text-4xl tracking-tighter uppercase italic text-center px-8 leading-none">REGISTRO<br/><span className="text-white">PROCESADO</span></h2>
         <p className="text-slate-400 font-bold tracking-widest uppercase text-xs mt-6 animate-pulse">Sincronizando siguiente parada...</p>
       </div>
     </div>
