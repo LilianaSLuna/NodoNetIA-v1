@@ -295,7 +295,7 @@ export default function DriverPage() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col max-w-md mx-auto shadow-2xl relative overflow-hidden font-sans antialiased">
       <DriverHeader isOnline={isOnline} />
-      <main key={`stop-view-index-${currentStopIndex}`} className="flex-1 overflow-y-auto pb-44">
+      <main className="flex-1 overflow-y-auto pb-44">
         <div className="px-4 pt-4">
           <DriverMap stops={stops} currentStopIndex={currentStopIndex} encodedPolyline={encodedPolyline} userLocation={userLocation} />
         </div>
