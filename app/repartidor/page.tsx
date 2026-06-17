@@ -228,18 +228,23 @@ export default function DriverPage() {
       } else { finalizeLocal(); }
     } catch (e) { finalizeLocal(); } 
     finally {
-      flushSync(() => { setIsUploading(false); setIsTransitioning(true); });
+      // Eliminamos flushSync para permitir una transición asíncrona y segura en móviles
+      setIsUploading(false);
+      setIsTransitioning(true);
+
       setTimeout(() => {
-        flushSync(() => {
-          setEvidencePhoto(null);
-          setIsContingencyActive(false);
-          const nextIndex = currentStopIndex + 1;
-          if (nextIndex < stops.length) {
-            setCurrentStopIndex(nextIndex);
-            localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
-          }
-        });
-        setTimeout(() => setIsTransitioning(false), 600);
+        setEvidencePhoto(null);
+        setIsContingencyActive(false);
+        
+        const nextIndex = currentStopIndex + 1;
+        if (nextIndex < stops.length) {
+          setCurrentStopIndex(nextIndex);
+          localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
+        }
+
+        setTimeout(() => {
+          setIsTransitioning(false);
+        }, 600);
       }, 1200);
     }
   };
@@ -265,18 +270,23 @@ export default function DriverPage() {
       } else { finalizeLocalSkip(); }
     } catch (e) { finalizeLocalSkip(); } 
     finally {
-      flushSync(() => { setIsUploading(false); setIsTransitioning(true); });
+      // Transición suave y protegida anti-colisiones de DOM
+      setIsUploading(false);
+      setIsTransitioning(true);
+
       setTimeout(() => {
-        flushSync(() => {
-          setEvidencePhoto(null);
-          setIsContingencyActive(false);
-          const nextIndex = currentStopIndex + 1;
-          if (nextIndex < stops.length) {
-            setCurrentStopIndex(nextIndex);
-            localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
-          }
-        });
-        setTimeout(() => setIsTransitioning(false), 600);
+        setEvidencePhoto(null);
+        setIsContingencyActive(false);
+        
+        const nextIndex = currentStopIndex + 1;
+        if (nextIndex < stops.length) {
+          setCurrentStopIndex(nextIndex);
+          localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
+        }
+
+        setTimeout(() => {
+          setIsTransitioning(false);
+        }, 600);
       }, 1200);
     }
   };
