@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
-import { flushSync } from "react-dom"
 import { DriverHeader } from "@/components/driver/driver-header"
 import { DriverMap } from "@/components/driver/driver-map"
 import { CurrentStop } from "@/components/driver/current-stop"
@@ -18,7 +17,8 @@ import { useAuth } from "@/components/auth-provider"
 import { signInWithPopup } from "firebase/auth"
 import { auth, googleProvider } from "@/lib/firebase"
 
-const NETWORK_TIMEOUT = 7000;
+// AUMENTADO A 30 SEGUNDOS PARA REDES MÓVILES LENTAS
+const NETWORK_TIMEOUT = 30000; 
 
 export default function DriverPage() {
   const { user, loading: authLoading } = useAuth();
@@ -69,12 +69,19 @@ export default function DriverPage() {
               await uploadString(sRef, item.evidencePhoto, 'data_url');
               photoUrl = await getDownloadURL(sRef);
             }
-            await updateDoc(doc(db, `tenants/SURA/pending_optimizations/${item.docId}/validated_stops`, item.stopId), {
+            
+            // PROTECCIÓN: Solo actualizamos la evidencia si de verdad logramos subir una foto nueva
+            const updatePayload: any = {
               status: item.data.status,
-              evidence_url: photoUrl,
               delivered_at: serverTimestamp(),
-              confirmed_coordinate: item.data.confirmed_coordinate || null
-            });
+              confirmed_coordinate: item.data.confirmed_coordinate || null,
+              is_contingency: item.data.is_contingency || false
+            };
+            if (photoUrl) {
+              updatePayload.evidence_url = photoUrl;
+            }
+
+            await updateDoc(doc(db, `tenants/SURA/pending_optimizations/${item.docId}/validated_stops`, item.stopId), updatePayload);
           } catch (err) {
             remainingQueue.push(item);
           }
@@ -142,7 +149,6 @@ export default function DriverPage() {
     return (R * c) <= 50; 
   }, [userLocation, currentStop]);
 
-  // FIX DEFINITIVO DE LA MATEMÁTICA DEL RELOJ (ANTI-NaN)
   const routeMetrics = useMemo(() => {
     if (!stops || stops.length === 0) return { remainingTimeStr: "Calculando...", pendingCount: 0 };
     
@@ -152,7 +158,6 @@ export default function DriverPage() {
     const stopsToCalculate = stops.slice(currentStopIndex, stops.length > 1 ? stops.length - 1 : stops.length);
     
     stopsToCalculate.forEach((s: any) => {
-      // Parseo ultra-seguro
       let stopMins = parseInt(s.duration) || parseInt(s.estimated_duration) || parseInt(s.time) || 0;
       if (isNaN(stopMins)) stopMins = 0;
       
@@ -169,7 +174,6 @@ export default function DriverPage() {
     const entregadasReales = Math.max(0, currentStopIndex > 0 ? currentStopIndex - 1 : 0);
     const currentPending = Math.max(0, totalEntregasReales - entregadasReales);
 
-    // Si aún no hay datos del agente, mostramos un ETA estimado base de 1h 15m para el MVP en lugar de error
     const timeDisplay = validTimeFound ? `${hours}h ${mins}m` : "1h 15m";
 
     return {
@@ -177,6 +181,31 @@ export default function DriverPage() {
       pendingCount: currentPending
     };
   }, [stops, currentStopIndex]);
+
+  const triggerSafeTransition = () => {
+    setIsUploading(false);
+    setIsTransitioning(true);
+
+    // ESCALÓN 1: Ocultar foto y contingencia suavemente
+    setTimeout(() => {
+      setEvidencePhoto(null);
+      setIsContingencyActive(false);
+
+      // ESCALÓN 2: Avanzar el mapa una vez que el DOM está limpio
+      setTimeout(() => {
+        const nextIndex = currentStopIndex + 1;
+        if (nextIndex < stops.length) {
+          setCurrentStopIndex(nextIndex);
+          localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
+        }
+
+        // ESCALÓN 3: Quitar pantalla de carga
+        setTimeout(() => {
+          setIsTransitioning(false);
+        }, 500);
+      }, 150);
+    }, 600);
+  };
 
   const handleComplete = async () => {
     if (!currentStop || !docId || isUploading) return;
@@ -192,17 +221,19 @@ export default function DriverPage() {
           is_ground_truth: true, 
           delivered_at: new Date().toISOString(), 
           offline_flag: true,
-          is_contingency: isContingencyActive // <--- BANDERA OFFLINE
+          is_contingency: isContingencyActive
         } 
       };
-      queue.push(newPayload);
-      try { localStorage.setItem('offline_deliveries', JSON.stringify(queue)); } 
-      catch (quotaError) {
+      
+      try { 
+        queue.push(newPayload);
+        localStorage.setItem('offline_deliveries', JSON.stringify(queue)); 
+      } catch (quotaError) {
+        // Fallback defensivo si el celular se queda sin memoria para la foto
         newPayload.evidencePhoto = null; 
         const lightQueue = JSON.parse(localStorage.getItem('offline_deliveries') || '[]');
         lightQueue.push(newPayload);
-        try { localStorage.setItem('offline_deliveries', JSON.stringify(lightQueue)); } 
-        catch (innerErr) { localStorage.setItem('offline_deliveries', JSON.stringify([newPayload])); }
+        localStorage.setItem('offline_deliveries', JSON.stringify(lightQueue));
       }
     };
 
@@ -220,32 +251,16 @@ export default function DriverPage() {
               status: "DELIVERED", 
               evidence_url: photoUrl, 
               delivered_at: serverTimestamp(),
-              is_contingency: isContingencyActive // <--- BANDERA ONLINE
+              is_contingency: isContingencyActive
             });
           })(),
           new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), NETWORK_TIMEOUT))
         ]);
       } else { finalizeLocal(); }
-    } catch (e) { finalizeLocal(); } 
-    finally {
-      // Eliminamos flushSync para permitir una transición asíncrona y segura en móviles
-      setIsUploading(false);
-      setIsTransitioning(true);
-
-      setTimeout(() => {
-        setEvidencePhoto(null);
-        setIsContingencyActive(false);
-        
-        const nextIndex = currentStopIndex + 1;
-        if (nextIndex < stops.length) {
-          setCurrentStopIndex(nextIndex);
-          localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
-        }
-
-        setTimeout(() => {
-          setIsTransitioning(false);
-        }, 600);
-      }, 1200);
+    } catch (e) { 
+      finalizeLocal(); 
+    } finally {
+      triggerSafeTransition();
     }
   };
 
@@ -268,26 +283,10 @@ export default function DriverPage() {
           status: "SKIPPED", skipped_at: serverTimestamp()
         });
       } else { finalizeLocalSkip(); }
-    } catch (e) { finalizeLocalSkip(); } 
-    finally {
-      // Transición suave y protegida anti-colisiones de DOM
-      setIsUploading(false);
-      setIsTransitioning(true);
-
-      setTimeout(() => {
-        setEvidencePhoto(null);
-        setIsContingencyActive(false);
-        
-        const nextIndex = currentStopIndex + 1;
-        if (nextIndex < stops.length) {
-          setCurrentStopIndex(nextIndex);
-          localStorage.setItem(`nodonet_progress_${docId}`, String(nextIndex));
-        }
-
-        setTimeout(() => {
-          setIsTransitioning(false);
-        }, 600);
-      }, 1200);
+    } catch (e) { 
+      finalizeLocalSkip(); 
+    } finally {
+      triggerSafeTransition();
     }
   };
 
