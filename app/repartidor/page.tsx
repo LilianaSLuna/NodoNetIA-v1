@@ -149,17 +149,26 @@ export default function DriverPage() {
     return (R * c) <= 50; 
   }, [userLocation, currentStop]);
 
+  // FIX DEFINITIVO DE LA MATEMÁTICA DEL RELOJ (BLINDAJE ESTRICTO)
   const routeMetrics = useMemo(() => {
     if (!stops || stops.length === 0) return { remainingTimeStr: "Calculando...", pendingCount: 0 };
     
     let totalMinutes = 0;
     let validTimeFound = false;
     
+    // Ignoramos el último pin porque es el destino final
     const stopsToCalculate = stops.slice(currentStopIndex, stops.length > 1 ? stops.length - 1 : stops.length);
     
     stopsToCalculate.forEach((s: any) => {
-      let stopMins = parseInt(s.duration) || parseInt(s.estimated_duration) || parseInt(s.time) || 0;
-      if (isNaN(stopMins)) stopMins = 0;
+      // Conversión estricta a número real, rechazando letras y basura de caché
+      const duration1 = Number(s.duration);
+      const duration2 = Number(s.estimated_duration);
+      const duration3 = Number(s.time);
+
+      let stopMins = 0;
+      if (!Number.isNaN(duration1) && duration1 > 0) stopMins = duration1;
+      else if (!Number.isNaN(duration2) && duration2 > 0) stopMins = duration2;
+      else if (!Number.isNaN(duration3) && duration3 > 0) stopMins = duration3;
       
       if (stopMins > 0) {
         totalMinutes += stopMins;
@@ -167,14 +176,27 @@ export default function DriverPage() {
       }
     });
 
-    const hours = Math.floor(totalMinutes / 60) || 0;
-    const mins = Math.round(totalMinutes % 60) || 0;
+    // Si por algún milagro el total se corrompe, lo reseteamos a cero
+    if (Number.isNaN(totalMinutes) || totalMinutes < 0) {
+      totalMinutes = 0;
+    }
 
+    const hours = Math.floor(totalMinutes / 60) || 0;
+    const mins = Math.floor(totalMinutes % 60) || 0;
+
+    // Contadores limpios
     const totalEntregasReales = Math.max(0, stops.length - 2);
     const entregadasReales = Math.max(0, currentStopIndex > 0 ? currentStopIndex - 1 : 0);
     const currentPending = Math.max(0, totalEntregasReales - entregadasReales);
 
-    const timeDisplay = validTimeFound ? `${hours}h ${mins}m` : "1h 15m";
+    // Interpolación segura (Si las matemáticas fallan, mostramos un ETA promedio)
+    let timeDisplay = "1h 15m"; 
+    if (validTimeFound && totalMinutes > 0) {
+      // Nos aseguramos de que no haya variables NaN en la cadena final
+      const safeHours = Number.isNaN(hours) ? 0 : hours;
+      const safeMins = Number.isNaN(mins) ? 0 : mins;
+      timeDisplay = `${safeHours}h ${safeMins}m`;
+    }
 
     return {
       remainingTimeStr: timeDisplay,
