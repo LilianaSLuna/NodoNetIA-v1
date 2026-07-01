@@ -1,5 +1,5 @@
 {
-  "redirects": [
+  "rewrites": [
     {
       "source": "/",
       "has": [
@@ -8,8 +8,7 @@
           "value": "app.nodonet.net"
         }
       ],
-      "destination": "/repartidor",
-      "permanent": false
+      "destination": "/repartidor"
     }
   ]
 }
